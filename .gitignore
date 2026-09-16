@@ -1,0 +1,25 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider / VS
+.vs/
+.idea/
+*.DotSettings.user
+
+# Local runtime data (icon cache, layout, settings) if ever placed in-tree
+.local/
+*.hearthcache
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

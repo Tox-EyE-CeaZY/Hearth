@@ -1,0 +1,46 @@
+<UserControl x:Class="Hearth.App.Views.DesktopSurface"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AllowDrop="True"
+             Focusable="True"
+             UseLayoutRounding="True"
+             SnapsToDevicePixels="True"
+             RenderOptions.BitmapScalingMode="HighQuality">
+
+  <!--
+    A UserControl, not a Window, and that distinction is the whole reason the
+    desktop renders at all.
+
+    Hearth's content has to live in a child HWND inside the shell's desktop
+    window. A WPF Window cannot become one after the fact: reparenting it and
+    setting WS_CHILD leaves layout, hit-testing and input all working — clicks
+    land, menus open, apps launch — while nothing is ever presented to the
+    screen, because its render target was built for a top-level window. The
+    supported route is an HwndSource created as a child from the outset, with
+    this control as its RootVisual. See DesktopHost.
+
+    The root is scaled so one WPF unit equals one physical pixel, which lets all
+    layout maths work in the same virtual-screen coordinates the monitor
+    rectangles are reported in. Mixed-DPI setups then just work.
+  -->
+  <Grid x:Name="RootGrid">
+    <Grid.LayoutTransform>
+      <ScaleTransform x:Name="RootScale" ScaleX="1" ScaleY="1" />
+    </Grid.LayoutTransform>
+
+    <!-- One rectangle per monitor, each with that monitor's wallpaper. -->
+    <Canvas x:Name="WallpaperCanvas" />
+
+    <!-- Scrim: lifts label and icon contrast over a busy photo. -->
+    <Rectangle x:Name="ScrimRect" Fill="Black" Opacity="0" IsHitTestVisible="False" />
+
+    <!-- Tiles, positioned in virtual-screen pixels. -->
+    <Canvas x:Name="ItemCanvas" Background="Transparent" />
+
+    <!-- An open folder: scrim plus panel, above the grid. -->
+    <Canvas x:Name="FolderLayer" Visibility="Collapsed" />
+
+    <!-- Drag ghost rides above everything while a tile is in flight. -->
+    <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False" />
+  </Grid>
+</UserControl>

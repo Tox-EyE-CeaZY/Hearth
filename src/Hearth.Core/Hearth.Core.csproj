@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <RootNamespace>Hearth.Core</RootNamespace>
+    <!--
+      Core is deliberately WPF-aware: the icon pipeline's output *is* a
+      BitmapSource/Geometry, and inventing a parallel imaging abstraction to
+      keep this "pure" would cost a conversion per icon for no benefit.
+      Nothing in Core touches windows, hosting, or app lifetime, so it stays
+      embeddable in another WPF host.
+    -->
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      The hosting layer in Hearth.App is itself raw interop (WorkerW reparenting,
+      virtual-screen metrics, per-monitor DPI) and needs the same P/Invoke surface.
+      Sharing it this way keeps Core's *public* API meaningful — catalogs, the icon
+      pipeline, layout — instead of promoting a wall of DllImports to public just
+      to reach across the assembly boundary.
+
+      Matches Hearth.App's AssemblyName, which is "Hearth", not the project name.
+    -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Hearth</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>

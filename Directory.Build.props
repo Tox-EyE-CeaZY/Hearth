@@ -1,0 +1,26 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- One place to move the whole solution forward. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <Platforms>x64;ARM64</Platforms>
+
+    <Nullable>enable</Nullable>
+    <LangVersion>12.0</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Interop-heavy code: we want these loud. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+
+    <Company>Hearth</Company>
+    <Product>Hearth</Product>
+    <!-- Main.Sub.ActionSet.yyyymmddhhmm -->
+    <Version>0.1.0</Version>
+    <InformationalVersion>0.1.0.202609151200</InformationalVersion>
+  </PropertyGroup>
+
+</Project>
