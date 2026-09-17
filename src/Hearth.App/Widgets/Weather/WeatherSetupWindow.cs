@@ -7,7 +7,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
-using Hearth.Core.Settings;
+using Hearth.App.Controls;
 
 namespace Hearth.App.Widgets.Weather;
 
@@ -46,7 +46,7 @@ internal sealed class WeatherSetupWindow : Window
         Foreground = Brush("#FFF2F2F4");
         FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI");
         FontSize = 14;
-        Resources = (ResourceDictionary)XamlReader.Parse(Styles);
+        Resources = DialogChrome.CreateResources();
 
         var heading = new TextBlock
         {
@@ -149,7 +149,7 @@ internal sealed class WeatherSetupWindow : Window
         }
 
         Loaded += (_, _) => _search.Focus();
-        SourceInitialized += (_, _) => UseDarkTitleBar();
+        SourceInitialized += (_, _) => DialogChrome.UseDarkTitleBar(this);
     }
 
     private async Task UseDeviceLocationAsync()
@@ -233,126 +233,5 @@ internal sealed class WeatherSetupWindow : Window
         VerticalAlignment = VerticalAlignment.Center,
     };
 
-    private static SolidColorBrush Brush(string hex)
-    {
-        var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
-        brush.Freeze();
-        return brush;
-    }
-
-    private void UseDarkTitleBar()
-    {
-        var hwnd = new WindowInteropHelper(this).Handle;
-        var on = 1;
-        // DWMWA_USE_IMMERSIVE_DARK_MODE; ignored harmlessly on builds without it.
-        DwmSetWindowAttribute(hwnd, 20, ref on, sizeof(int));
-    }
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
-
-    private const string Styles = """
-        <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-          <SolidColorBrush x:Key="Field" Color="#FF2A2A31" />
-          <SolidColorBrush x:Key="FieldEdge" Color="#33FFFFFF" />
-          <SolidColorBrush x:Key="Text" Color="#FFF2F2F4" />
-          <SolidColorBrush x:Key="Accent" Color="#FF8AB4F8" />
-
-          <Style TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
-            <Setter Property="Background" Value="{StaticResource Field}" />
-            <Setter Property="Padding" Value="14,7" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-              <Setter.Value>
-                <ControlTemplate TargetType="Button">
-                  <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="8"
-                          BorderBrush="{StaticResource FieldEdge}" BorderThickness="1" Padding="{TemplateBinding Padding}">
-                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                  </Border>
-                  <ControlTemplate.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                      <Setter TargetName="Bd" Property="Opacity" Value="0.85" />
-                    </Trigger>
-                    <Trigger Property="IsEnabled" Value="False">
-                      <Setter TargetName="Bd" Property="Opacity" Value="0.4" />
-                    </Trigger>
-                  </ControlTemplate.Triggers>
-                </ControlTemplate>
-              </Setter.Value>
-            </Setter>
-          </Style>
-
-          <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Background" Value="{StaticResource Accent}" />
-            <Setter Property="Foreground" Value="#FF10182A" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-          </Style>
-
-          <Style x:Key="Link" TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource Accent}" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Margin" Value="0,6,0,0" />
-            <Setter Property="Template">
-              <Setter.Value>
-                <ControlTemplate TargetType="Button">
-                  <TextBlock Text="{TemplateBinding Content}" TextDecorations="Underline" />
-                </ControlTemplate>
-              </Setter.Value>
-            </Setter>
-          </Style>
-
-          <Style TargetType="TextBox">
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
-            <Setter Property="Background" Value="{StaticResource Field}" />
-            <Setter Property="BorderBrush" Value="{StaticResource FieldEdge}" />
-            <Setter Property="CaretBrush" Value="{StaticResource Text}" />
-            <Setter Property="Padding" Value="8,6" />
-            <Setter Property="Template">
-              <Setter.Value>
-                <ControlTemplate TargetType="TextBox">
-                  <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                          BorderThickness="1" CornerRadius="8">
-                    <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" />
-                  </Border>
-                </ControlTemplate>
-              </Setter.Value>
-            </Setter>
-          </Style>
-
-          <Style TargetType="ListBox">
-            <Setter Property="Background" Value="{StaticResource Field}" />
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
-            <Setter Property="BorderBrush" Value="{StaticResource FieldEdge}" />
-            <Setter Property="BorderThickness" Value="1" />
-          </Style>
-
-          <Style TargetType="ListBoxItem">
-            <Setter Property="Padding" Value="10,7" />
-            <Setter Property="Template">
-              <Setter.Value>
-                <ControlTemplate TargetType="ListBoxItem">
-                  <Border x:Name="Bd" Background="Transparent" Padding="{TemplateBinding Padding}">
-                    <ContentPresenter />
-                  </Border>
-                  <ControlTemplate.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                      <Setter TargetName="Bd" Property="Background" Value="#1FFFFFFF" />
-                    </Trigger>
-                    <Trigger Property="IsSelected" Value="True">
-                      <Setter TargetName="Bd" Property="Background" Value="#408AB4F8" />
-                    </Trigger>
-                  </ControlTemplate.Triggers>
-                </ControlTemplate>
-              </Setter.Value>
-            </Setter>
-          </Style>
-
-          <Style TargetType="RadioButton">
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-          </Style>
-        </ResourceDictionary>
-        """;
+    private static SolidColorBrush Brush(string hex) => DialogChrome.Brush(hex);
 }

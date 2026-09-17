@@ -6,7 +6,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
-namespace Hearth.App.Widgets;
+namespace Hearth.App.Widgets.Calendar;
 
 /// <summary>
 /// This month at a glance, with today marked.
@@ -23,6 +23,11 @@ public sealed class CalendarWidget : IWidget
     public (int Columns, int Rows) MinimumSpan => (2, 2);
 
     public FrameworkElement CreateView(WidgetContext context) => new CalendarView(context);
+
+    public double BoardHeight(bool wide) => 280;
+    public int Order => 30;
+
+    public bool OnBoardByDefault => true;
 
     private sealed class CalendarView : ContentControl
     {
@@ -52,6 +57,7 @@ public sealed class CalendarWidget : IWidget
         /// </summary>
         private void Build()
         {
+            using var theme = WidgetChrome.Scope(_context);
             var today = DateTime.Today;
             _shownDay = today;
 

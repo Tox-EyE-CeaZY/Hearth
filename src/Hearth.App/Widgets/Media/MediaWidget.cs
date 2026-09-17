@@ -8,7 +8,7 @@ using Hearth.Core.Diagnostics;
 using Windows.Media.Control;
 using PlaybackStatus = Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus;
 
-namespace Hearth.App.Widgets;
+namespace Hearth.App.Widgets.Media;
 
 /// <summary>
 /// Now playing: whatever Windows' own media overlay is showing — Spotify,
@@ -26,6 +26,11 @@ public sealed class MediaWidget : IWidget
     public (int Columns, int Rows) MinimumSpan => (3, 1);
 
     public FrameworkElement CreateView(WidgetContext context) => new MediaView(context);
+
+    public double BoardHeight(bool wide) => wide ? 140 : 170;
+    public int Order => 20;
+
+    public bool OnBoardByDefault => true;
 
     private sealed class MediaView : ContentControl
     {

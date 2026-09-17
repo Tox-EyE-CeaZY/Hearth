@@ -19,6 +19,9 @@ public static class ShellLauncher
         return Invoke(ResolveTarget(item), verb: null);
     }
 
+    /// <summary>Opens a path, link or URI with its default handler.</summary>
+    public static bool Open(string target) => Invoke(target, verb: null);
+
     public static bool OpenFileLocation(LauncherItem item)
     {
         var path = item.FileSystemPath;

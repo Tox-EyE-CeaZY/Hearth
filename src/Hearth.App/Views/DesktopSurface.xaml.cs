@@ -83,6 +83,9 @@ public partial class DesktopSurface : UserControl
 
         _desktopWatcher = _desktopCatalog.Watch(() =>
             Dispatcher.InvokeAsync(async () => await RefreshItemsAsync().ConfigureAwait(true)));
+
+        App.Badges.Changed += OnBadgesChanged;
+        _ = Task.Run(App.Badges.Refresh);
     }
 
     /// <summary>
@@ -106,6 +109,7 @@ public partial class DesktopSurface : UserControl
 
         _desktopWatcher?.Dispose();
         _desktopWatcher = null;
+        App.Badges.Changed -= OnBadgesChanged;
 
         TrySaveLayout();
     }
@@ -227,6 +231,11 @@ public partial class DesktopSurface : UserControl
     {
         var settings = App.Settings;
 
+        // Read on this thread: the catalog work below runs on its own.
+        var pinned = new HashSet<string>(_layout.Pinned, StringComparer.OrdinalIgnoreCase);
+        var readApps = settings.IncludeInstalledApps || pinned.Count > 0 || _installedApps is null;
+        IReadOnlyList<LauncherItem>? apps = null;
+
         List<LauncherItem> discovered;
         try
         {
@@ -239,11 +248,13 @@ public partial class DesktopSurface : UserControl
                 var list = new List<LauncherItem>(_desktopCatalog.Enumerate());
                 Log.Write($"desktop catalog: {list.Count} item(s)");
 
-                if (settings.IncludeInstalledApps)
+                if (readApps)
                 {
-                    var apps = _appsCatalog.Enumerate();
-                    Log.Write($"apps catalog: {apps.Count} app(s)");
-                    list.AddRange(apps);
+                    apps = _appsCatalog.Enumerate();
+                    Log.Write($"apps catalog: {apps.Count} app(s), {pinned.Count} added by hand");
+                    list.AddRange(settings.IncludeInstalledApps
+                        ? apps
+                        : apps.Where(app => pinned.Contains(app.Id)));
                 }
                 return list;
             }).ConfigureAwait(true);
@@ -256,10 +267,17 @@ public partial class DesktopSurface : UserControl
             return;
         }
 
+        if (apps is not null)
+        {
+            _installedApps = apps;
+            App.Apps.Update(apps);
+        }
+
         _items.Clear();
         foreach (var item in discovered) _items[item.Id] = item;
 
         RelayoutTiles();
+        await ResolveAppIdsAsync().ConfigureAwait(true);
     }
 
     private void RelayoutTiles()
@@ -277,15 +295,23 @@ public partial class DesktopSurface : UserControl
         // Hidden items are simply not live: Reconcile takes them off the grid
         // and out of any folder, and puts them back when they are unhidden.
         var liveIds = _items.Keys.Where(id => !_layout.IsHidden(id)).ToList();
-        liveIds.AddRange(_layout.Monitors
-            .SelectMany(m => m.Placements)
+        // Every arrangement counts, so a widget on a display that is not
+        // connected right now is carried over at its own size, not forgotten.
+        liveIds.AddRange(_layout.AllPlacements
             .Select(p => p.ItemId)
             .Where(id => WidgetRegistry.FromPlacementId(id) is not null)
             .Distinct(StringComparer.OrdinalIgnoreCase));
 
         var displays = _surfaces
-            .Select(sf => (sf.Info.DeviceId, sf.Columns, sf.Rows))
+            .Select(sf => new DisplayGrid(sf.Info.DeviceId,
+                (int)Math.Round(sf.LocalBounds.Width), (int)Math.Round(sf.LocalBounds.Height),
+                sf.Columns, sf.Rows))
             .ToList();
+
+        // Each set of displays (and grid size) has its own saved arrangement.
+        // Switch first: the covered-cell pass below works on the active one.
+        var switched = _layout.Activate(displays);
+        if (switched) Log.Write($"arrangement: {_layout.ActiveArrangement}");
 
         // Unlocked widgets store pixel bounds; the cells they cover depend on
         // the current grid, so recompute before anything is placed around them.
@@ -295,7 +321,7 @@ public partial class DesktopSurface : UserControl
                 UpdateCoveredCells(placement, surface);
         }
 
-        if (_layout.Reconcile(liveIds, displays, out var unplaced))
+        if (_layout.Reconcile(liveIds, displays, out var unplaced) || switched)
             TrySaveLayout();
 
         foreach (var surface in _surfaces)
@@ -336,6 +362,8 @@ public partial class DesktopSurface : UserControl
             }
         }
 
+        ApplyBadges();
+
         Log.Write($"relayout: {_tiles.Count} tile(s) across {_surfaces.Count} display(s), " +
                   $"{unplaced} item(s) did not fit");
     }
@@ -344,12 +372,26 @@ public partial class DesktopSurface : UserControl
     {
         var bounds = WidgetBounds(placement, surface);
 
-        var view = widget.CreateView(new WidgetContext
+        var context = new WidgetContext
         {
             PixelSize = bounds.Size,
             Scale = surface.Scale,
             DarkTheme = App.Settings.DarkTheme,
-        });
+        };
+
+        // A widget that fails to build leaves a gap rather than taking Hearth
+        // (and the desktop icons it hides) down with it.
+        FrameworkElement view;
+        try
+        {
+            using var theme = WidgetChrome.Scope(context);
+            view = widget.CreateView(context);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"widget {widget.Id}", ex);
+            view = new Border();
+        }
 
         var frame = new WidgetFrame(placement.ItemId, view, surface.Scale, placement.Unlocked)
         {
@@ -512,7 +554,7 @@ public partial class DesktopSurface : UserControl
     internal void RemoveWidget(IWidget widget)
     {
         var id = WidgetRegistry.ToPlacementId(widget);
-        var removed = _layout.Monitors.Sum(m => m.Placements.RemoveAll(p => p.ItemId == id));
+        var removed = _layout.RemoveEverywhere(id);
         if (removed == 0) return;
 
         TrySaveLayout();
@@ -522,7 +564,7 @@ public partial class DesktopSurface : UserControl
     internal bool HasWidget(IWidget widget)
     {
         var id = WidgetRegistry.ToPlacementId(widget);
-        return _layout.Monitors.Any(m => m.Find(id) is not null);
+        return _layout.AllPlacements.Any(p => p.ItemId == id);
     }
 
     private static bool IsRegionFree(MonitorLayout layout, int column, int row, int columns, int rows)
@@ -547,6 +589,7 @@ public partial class DesktopSurface : UserControl
             IconSize = App.Settings.IconSize * surface.Scale,
             ShowLabel = App.Settings.ShowLabels,
             ToolTip = item.DisplayName,
+            Badge = BadgeFor(item.Id),
         };
 
         // Icons stream in as they render; the grid is interactive immediately

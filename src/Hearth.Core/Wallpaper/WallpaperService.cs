@@ -61,6 +61,9 @@ public sealed class WallpaperService
                     // Solid-colour background, or a slideshow mid-transition.
                 }
 
+                // Mid-unplug, a display can still be listed with no area.
+                if (bounds.Width <= 0 || bounds.Height <= 0) continue;
+
                 monitors.Add(new MonitorInfo(deviceId, bounds, path));
             }
         }

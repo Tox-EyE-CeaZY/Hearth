@@ -47,7 +47,9 @@ public sealed class DesktopHost : IDisposable
 
         var parameters = new HwndSourceParameters("Hearth")
         {
-            WindowStyle = unchecked((int)(WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN)),
+            // Created hidden: see MarkNotFullScreen, which has to run before
+            // the window is first shown.
+            WindowStyle = unchecked((int)(WS_POPUP | WS_CLIPCHILDREN)),
 
             // TOOLWINDOW keeps it out of Alt+Tab and the taskbar. NOACTIVATE is
             // what keeps it at the bottom: an activated window is raised, and a
@@ -65,6 +67,8 @@ public sealed class DesktopHost : IDisposable
         };
 
         _source = new HwndSource(parameters);
+        MarkNotFullScreen(_source.Handle);
+        ShowWindow(_source.Handle, SW_SHOWNA);
         _taskbarCreatedMessage = RegisterWindowMessage("TaskbarCreated");
         _source.AddHook(WndProc);
 
@@ -82,6 +86,24 @@ public sealed class DesktopHost : IDisposable
         Current = this;
         Log.Write($"host: top-level hwnd=0x{_source.Handle:X} at ({x},{y}) size {width}x{height}");
         return true;
+    }
+
+    /// <summary>
+    /// Tells Explorer this is not a full-screen app.
+    ///
+    /// A borderless window covering a whole display looks exactly like a game
+    /// to the shell. With the desktop in front, SHQueryUserNotificationState
+    /// reported QUNS_BUSY (a full-screen app is running), which suppresses
+    /// notifications and stops an auto-hidden taskbar from coming up on hover —
+    /// the user had to press Win to reach it. The "NonRudeHWND" property is the
+    /// shell's own opt-out. Explorer reads it when the window is shown, so it
+    /// must be set before that: measured, setting it on a visible window
+    /// changes nothing until the window is hidden and shown again.
+    /// </summary>
+    private static void MarkNotFullScreen(IntPtr hwnd)
+    {
+        if (!SetProp(hwnd, "NonRudeHWND", new IntPtr(1)))
+            Log.Write("host: could not set NonRudeHWND; an auto-hidden taskbar may not appear on hover");
     }
 
     private static (int X, int Y, int Width, int Height) VirtualScreen() => (
@@ -115,6 +137,11 @@ public sealed class DesktopHost : IDisposable
         int idObject, int idChild, uint thread, uint time)
     {
         if (_source is null || hwnd == _source.Handle) return;
+
+        // Hearth's own windows (the Start menu, the Add apps drawer) are part
+        // of the desktop experience: opening one must not bury the desktop.
+        GetWindowThreadProcessId(hwnd, out var owner);
+        if (owner == Environment.ProcessId) return;
 
         var className = ClassOf(hwnd);
         var isDesktop = className is "Progman" or "WorkerW";
@@ -183,6 +210,10 @@ public sealed class DesktopHost : IDisposable
     /// Hearth is otherwise non-activating, which also means it never receives
     /// a keystroke.
     /// </summary>
+    /// <summary>Whether <paramref name="visual"/> is shown in the desktop window (not, say, the Start menu).</summary>
+    public bool Owns(System.Windows.Media.Visual visual) =>
+        _source is not null && ReferenceEquals(System.Windows.PresentationSource.FromVisual(visual), _source);
+
     public void BeginKeyboardInput()
     {
         if (_source is null || _keyboardEnabled) return;
@@ -221,6 +252,35 @@ public sealed class DesktopHost : IDisposable
         Win32.SetWindowPos(_source.Handle, Win32.HWND_BOTTOM, x, y, width, height, Win32.SWP_NOACTIVATE);
     }
 
+    private System.Windows.Threading.DispatcherTimer? _displayTimer;
+
+    /// <summary>
+    /// Plugging or unplugging a display arrives as a burst of changes, and the
+    /// ones in the middle describe setups that never settle (a display still
+    /// listed with no area, the primary not yet moved). Rebuilding only once
+    /// the burst is over means Hearth lays out for the real result, once.
+    /// </summary>
+    private void ScheduleDisplayRebuild()
+    {
+        if (_displayTimer is null)
+        {
+            _displayTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(600),
+            };
+            _displayTimer.Tick += (_, _) =>
+            {
+                _displayTimer.Stop();
+                Log.Write("display change settled; resizing surface");
+                Resize();
+                _surface?.Rebuild();
+            };
+        }
+
+        _displayTimer.Stop();
+        _displayTimer.Start();
+    }
+
     /// <summary>The window handle, for things that need a native owner (shell menus).</summary>
     public IntPtr Handle => _source?.Handle ?? IntPtr.Zero;
 
@@ -247,9 +307,7 @@ public sealed class DesktopHost : IDisposable
                 return new IntPtr(MA_NOACTIVATE);
 
             case WM_DISPLAYCHANGE:
-                Log.Write("display change; resizing surface");
-                Resize();
-                _surface?.Rebuild();
+                ScheduleDisplayRebuild();
                 break;
 
             default:
@@ -295,12 +353,14 @@ public sealed class DesktopHost : IDisposable
             _foregroundHook = IntPtr.Zero;
         }
         if (ReferenceEquals(Current, this)) Current = null;
+        _displayTimer?.Stop();
 
         _surface?.DetachFromDesktop();
         _layer.Dispose();
 
         if (_source is not null)
         {
+            RemoveProp(_source.Handle, "NonRudeHWND");
             _source.RemoveHook(WndProc);
             _source.Dispose();
             _source = null;
@@ -329,6 +389,22 @@ public sealed class DesktopHost : IDisposable
     private const int WM_MOUSEACTIVATE = 0x0021;
     private const int WM_DISPLAYCHANGE = 0x007E;
     private const int MA_NOACTIVATE = 3;
+
+    private const int SW_SHOWNA = 8;
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out int processId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr hwnd, int command);
+
+    [DllImport("user32.dll", EntryPoint = "SetPropW", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetProp(IntPtr hwnd, string name, IntPtr value);
+
+    [DllImport("user32.dll", EntryPoint = "RemovePropW", CharSet = CharSet.Unicode)]
+    private static extern IntPtr RemoveProp(IntPtr hwnd, string name);
 
     [DllImport("user32.dll", EntryPoint = "RegisterWindowMessageW", CharSet = CharSet.Unicode)]
     private static extern uint RegisterWindowMessage(string lpString);

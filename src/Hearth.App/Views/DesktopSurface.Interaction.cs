@@ -250,7 +250,7 @@ public partial class DesktopSurface
 
             default:
                 ClearSelection();
-                ShowBackgroundMenu();
+                ShowBackgroundMenu(e.GetPosition(ItemCanvas));
                 break;
         }
     }
@@ -665,6 +665,9 @@ public partial class DesktopSurface
     {
         var menu = new ContextMenu { PlacementTarget = ItemCanvas };
 
+        // The app's own jump list first, as on the taskbar.
+        if (AddJumpList(menu, item)) menu.Items.Add(new Separator());
+
         menu.Items.Add(MenuItemFor("Open", () =>
         {
             ShellLauncher.Launch(item);
@@ -696,7 +699,10 @@ public partial class DesktopSurface
         }
         menu.Items.Add(style);
 
-        menu.Items.Add(MenuItemFor("Hide from desktop", () => HideItem(item)));
+        if (IsRemovablePin(item))
+            menu.Items.Add(MenuItemFor("Remove from home", () => RemoveFromHome(item)));
+        else
+            menu.Items.Add(MenuItemFor("Hide from desktop", () => HideItem(item)));
 
         if (IsDeletable(item))
             menu.Items.Add(MenuItemFor("Delete", () => DeleteItem(item)));
@@ -1052,10 +1058,15 @@ public partial class DesktopSurface
         RelayoutTiles();
     }
 
-    private void ShowBackgroundMenu()
+    private void ShowBackgroundMenu(Point at)
     {
         var settings = App.Settings;
         var menu = new ContextMenu { PlacementTarget = ItemCanvas };
+
+        // Adding things is the most common reason to right-click empty space.
+        menu.Items.Add(MenuItemFor("Add apps...", () => OpenAddApps(at)));
+        menu.Items.Add(MenuItemFor("Open Start menu", () => Hosting.StartMenuController.Current?.Open()));
+        menu.Items.Add(new Separator());
 
         // Shape is the single highest-leverage setting, so it comes first.
         var shapes = new MenuItem { Header = "Icon shape" };
@@ -1156,6 +1167,9 @@ public partial class DesktopSurface
         }
         menu.Items.Add(hidden);
 
+        menu.Items.Add(CheckableMenuItem("Use Hearth's Start menu", settings.ReplaceStartMenu, () =>
+            Hosting.StartMenuController.Current?.SetReplaceStart(!settings.ReplaceStartMenu)));
+
         menu.Items.Add(CheckableMenuItem("Hide Windows desktop icons", settings.HideShellIcons, () =>
         {
             settings.HideShellIcons = !settings.HideShellIcons;
@@ -1185,7 +1199,7 @@ public partial class DesktopSurface
         OpenMenu(menu);
     }
 
-    private void ApplySettingsChange(bool reRenderIcons)
+    internal void ApplySettingsChange(bool reRenderIcons)
     {
         App.Settings.Save();
 
@@ -1211,7 +1225,7 @@ public partial class DesktopSurface
     /// window changes while the menu is up, the user has gone somewhere else
     /// and the menu should follow.
     /// </summary>
-    private static void OpenMenu(ContextMenu menu)
+    internal static void OpenMenu(ContextMenu menu)
     {
         var foregroundAtOpen = Win32.GetForegroundWindow();
 

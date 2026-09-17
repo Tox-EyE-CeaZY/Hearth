@@ -61,10 +61,27 @@ public sealed class HearthSettings
 
     public bool LaunchOnSingleClick { get; set; } = true;
 
+    // ---- Start menu -------------------------------------------------------
+
+    /// <summary>
+    /// Open Hearth's Start menu instead of Windows' when the Windows key is
+    /// pressed on its own or the Start button is clicked.
+    /// </summary>
+    public bool ReplaceStartMenu { get; set; } = true;
+
+    public StartBackdrop StartBackdrop { get; set; } = StartBackdrop.Blur;
+
+    /// <summary>Web search for Start's search box; the query replaces {0}.</summary>
+    public string WebSearchUrl { get; set; } = "https://www.google.com/search?q={0}";
+
     // ---- Widgets ----------------------------------------------------------
 
-    /// <summary>Null until the weather widget has been set up.</summary>
-    public WeatherConfig? Weather { get; set; }
+    /// <summary>
+    /// Where older versions kept the weather widget's settings. The widget
+    /// now keeps them itself (weather.json) and moves this across once.
+    /// </summary>
+    [JsonPropertyName("Weather")]
+    public JsonElement? LegacyWeather { get; set; }
 
     // ---- Persistence ----------------------------------------------------
 
@@ -117,16 +134,4 @@ public sealed class HearthSettings
         ForceBackground = UniformBackgrounds,
         DarkTheme = DarkTheme,
     };
-}
-
-/// <summary>Where the weather widget reports for, and in which units.</summary>
-public sealed class WeatherConfig
-{
-    /// <summary>Re-read the device location on each refresh instead of using a fixed place.</summary>
-    public bool UseDeviceLocation { get; set; }
-
-    public string PlaceName { get; set; } = string.Empty;
-    public double Latitude { get; set; }
-    public double Longitude { get; set; }
-    public bool Fahrenheit { get; set; }
 }

@@ -14,15 +14,66 @@ namespace Hearth.App.Widgets;
 /// </summary>
 internal static class WidgetChrome
 {
-    public static readonly Brush CardFill = Frozen(new SolidColorBrush(Color.FromArgb(0xC4, 0x15, 0x15, 0x1A)));
-    public static readonly Brush CardEdge = Frozen(new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF)));
-    public static readonly Brush Primary = Frozen(new SolidColorBrush(Color.FromRgb(0xF4, 0xF4, 0xF6)));
-    public static readonly Brush Secondary = Frozen(new SolidColorBrush(Color.FromArgb(0xA8, 0xF4, 0xF4, 0xF6)));
-    public static readonly Brush Faint = Frozen(new SolidColorBrush(Color.FromArgb(0x4C, 0xF4, 0xF4, 0xF6)));
-    public static readonly Brush Track = Frozen(new SolidColorBrush(Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF)));
-    public static readonly Brush Accent = Frozen(new SolidColorBrush(Color.FromRgb(0x8A, 0xB4, 0xF8)));
-    public static readonly Brush OnAccent = Frozen(new SolidColorBrush(Color.FromRgb(0x10, 0x18, 0x2A)));
-    public static readonly Brush Hover = Frozen(new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)));
+    /// <summary>One theme's colours for widgets.</summary>
+    private sealed record Palette(Brush CardFill, Brush CardEdge, Brush Primary, Brush Secondary, Brush Faint,
+        Brush Track, Brush Accent, Brush OnAccent, Brush Hover);
+
+    private static Brush B(byte a, byte r, byte g, byte b) => Frozen(new SolidColorBrush(Color.FromArgb(a, r, g, b)));
+
+    private static readonly Palette Dark = new(
+        CardFill: B(0xC4, 0x15, 0x15, 0x1A),
+        CardEdge: B(0x24, 0xFF, 0xFF, 0xFF),
+        Primary: B(0xFF, 0xF4, 0xF4, 0xF6),
+        Secondary: B(0xA8, 0xF4, 0xF4, 0xF6),
+        Faint: B(0x4C, 0xF4, 0xF4, 0xF6),
+        Track: B(0x2E, 0xFF, 0xFF, 0xFF),
+        Accent: B(0xFF, 0x8A, 0xB4, 0xF8),
+        OnAccent: B(0xFF, 0x10, 0x18, 0x2A),
+        Hover: B(0x26, 0xFF, 0xFF, 0xFF));
+
+    private static readonly Palette Light = new(
+        CardFill: B(0xE0, 0xFF, 0xFF, 0xFF),
+        CardEdge: B(0x1A, 0x00, 0x00, 0x00),
+        Primary: B(0xFF, 0x1B, 0x1B, 0x1F),
+        Secondary: B(0xA8, 0x1B, 0x1B, 0x1F),
+        Faint: B(0x5C, 0x1B, 0x1B, 0x1F),
+        Track: B(0x1F, 0x00, 0x00, 0x00),
+        Accent: B(0xFF, 0x1A, 0x6F, 0xD8),
+        OnAccent: B(0xFF, 0xFF, 0xFF, 0xFF),
+        Hover: B(0x14, 0x00, 0x00, 0x00));
+
+    /// <summary>
+    /// The palette for the widget being built. Widgets pick their colours up
+    /// from these properties as they build, so a theme only has to be in
+    /// scope while a view (or a later rebuild of part of it) is being made.
+    /// Outside a scope the desktop's dark palette applies.
+    /// </summary>
+    [ThreadStatic] private static Palette? _current;
+
+    private static Palette Current => _current ?? Dark;
+
+    /// <summary>Makes <paramref name="context"/>'s theme current until disposed.</summary>
+    public static IDisposable Scope(WidgetContext context)
+    {
+        var previous = _current;
+        _current = context.DarkTheme ? Dark : Light;
+        return new Restore(previous);
+    }
+
+    private sealed class Restore(Palette? previous) : IDisposable
+    {
+        public void Dispose() => _current = previous;
+    }
+
+    public static Brush CardFill => Current.CardFill;
+    public static Brush CardEdge => Current.CardEdge;
+    public static Brush Primary => Current.Primary;
+    public static Brush Secondary => Current.Secondary;
+    public static Brush Faint => Current.Faint;
+    public static Brush Track => Current.Track;
+    public static Brush Accent => Current.Accent;
+    public static Brush OnAccent => Current.OnAccent;
+    public static Brush Hover => Current.Hover;
 
     public static readonly FontFamily Body = new("Segoe UI Variable Text, Segoe UI");
     public static readonly FontFamily Display = new("Segoe UI Variable Display, Segoe UI");
@@ -34,11 +85,15 @@ internal static class WidgetChrome
         return freezable;
     }
 
+    /// <summary>
+    /// The widget's card. A bare widget (the Start menu's Widgets board, which
+    /// draws its own card) gets only the padding.
+    /// </summary>
     public static Border Card(WidgetContext context, UIElement child) => new()
     {
-        Background = CardFill,
-        BorderBrush = CardEdge,
-        BorderThickness = new Thickness(1),
+        Background = context.Bare ? Brushes.Transparent : CardFill,
+        BorderBrush = context.Bare ? Brushes.Transparent : CardEdge,
+        BorderThickness = new Thickness(context.Bare ? 0 : 1),
         CornerRadius = new CornerRadius(22 * context.Scale),
         Padding = new Thickness(16 * context.Scale),
         Child = child,
@@ -91,7 +146,8 @@ internal sealed class GlyphButton : Border
         Child = _glyph;
 
         var idle = Background;
-        MouseEnter += (_, _) => { if (!filled) Background = WidgetChrome.Hover; else Opacity = 0.9; };
+        var hover = WidgetChrome.Hover;
+        MouseEnter += (_, _) => { if (!filled) Background = hover; else Opacity = 0.9; };
         MouseLeave += (_, _) => { Background = idle; Opacity = 1; _pressed = false; };
     }
 
@@ -126,7 +182,12 @@ internal sealed class BarView : FrameworkElement
 
     public static readonly DependencyProperty FillProperty = DependencyProperty.Register(
         nameof(Fill), typeof(Brush), typeof(BarView),
-        new FrameworkPropertyMetadata(WidgetChrome.Accent, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    // Captured when built, so the track matches the theme the bar was made in.
+    private readonly Brush _track = WidgetChrome.Track;
+
+    public BarView() => Fill = WidgetChrome.Accent;
 
     public double Value
     {
@@ -147,10 +208,10 @@ internal sealed class BarView : FrameworkElement
         if (width <= 0 || height <= 0) return;
 
         var radius = height / 2;
-        dc.DrawRoundedRectangle(WidgetChrome.Track, null, new Rect(0, 0, width, height), radius, radius);
+        dc.DrawRoundedRectangle(_track, null, new Rect(0, 0, width, height), radius, radius);
 
         var filled = width * Math.Clamp(Value, 0, 1);
-        if (filled > 0)
+        if (filled > 0 && Fill is not null)
             dc.DrawRoundedRectangle(Fill, null, new Rect(0, 0, Math.Max(height, filled), height), radius, radius);
     }
 }

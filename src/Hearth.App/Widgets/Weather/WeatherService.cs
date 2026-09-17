@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Net.Http;
 using System.Text.Json;
 using Hearth.Core.Diagnostics;
-using Hearth.Core.Settings;
 using Windows.Devices.Geolocation;
 
 namespace Hearth.App.Widgets.Weather;

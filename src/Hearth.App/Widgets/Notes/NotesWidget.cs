@@ -5,17 +5,16 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using Hearth.App.Hosting;
 using Hearth.Core.Diagnostics;
 
-namespace Hearth.App.Widgets;
+namespace Hearth.App.Widgets.Notes;
 
 /// <summary>
 /// A sticky note on the desktop.
 ///
-/// Hearth's window never takes keyboard focus, so typing needs it to opt in
-/// for the duration of an edit (DesktopHost.BeginKeyboardInput) and opt back
-/// out afterwards. Text is saved shortly after you stop typing and again when
+/// Hearth's desktop window never takes keyboard focus, so typing needs it to
+/// opt in for the duration of an edit (WidgetKeyboard) and opt back out
+/// afterwards. Text is saved shortly after you stop typing and again when
 /// you click away, to %AppData%\Hearth\notes.txt — a plain file you can open
 /// anywhere.
 /// </summary>
@@ -31,12 +30,16 @@ public sealed class NotesWidget : IWidget
 
     public FrameworkElement CreateView(WidgetContext context) => new NotesView(context);
 
+    public double BoardHeight(bool wide) => 190;
+    public int Order => 50;
+
     private sealed class NotesView : ContentControl
     {
         private readonly TextBox _editor;
         private readonly TextBlock _placeholder;
         private readonly DispatcherTimer _saveDelay;
         private bool _editing;
+        private bool _tookKeyboard;
         private bool _dirty;
 
         public NotesView(WidgetContext context)
@@ -113,7 +116,7 @@ public sealed class NotesWidget : IWidget
         {
             if (_editing) return;
             _editing = true;
-            DesktopHost.Current?.BeginKeyboardInput();
+            _tookKeyboard = WidgetKeyboard.Begin(this);
             _placeholder.Visibility = Visibility.Collapsed;
             Dispatcher.BeginInvoke(() => Keyboard.Focus(_editor), DispatcherPriority.Input);
         }
@@ -124,7 +127,8 @@ public sealed class NotesWidget : IWidget
             _editing = false;
             Save();
             UpdatePlaceholder();
-            DesktopHost.Current?.EndKeyboardInput();
+            WidgetKeyboard.End(_tookKeyboard);
+            _tookKeyboard = false;
         }
 
         private void UpdatePlaceholder() =>

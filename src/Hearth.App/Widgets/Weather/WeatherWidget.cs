@@ -22,19 +22,23 @@ public sealed class WeatherWidget : IWidget, IConfigurableWidget
     public (int Columns, int Rows) DefaultSpan => (4, 2);
     public (int Columns, int Rows) MinimumSpan => (2, 1);
 
-    public bool NeedsSetup => App.Settings.Weather is null;
+    public bool NeedsSetup => WeatherSettings.Config is null;
 
     public bool Configure()
     {
-        var window = new WeatherSetupWindow(App.Settings.Weather);
+        var window = new WeatherSetupWindow(WeatherSettings.Config);
         if (window.ShowDialog() != true || window.Result is null) return false;
 
-        App.Settings.Weather = window.Result;
-        App.Settings.Save();
+        WeatherSettings.Config = window.Result;
         return true;
     }
 
     public FrameworkElement CreateView(WidgetContext context) => new WeatherView(context);
+
+    public double BoardHeight(bool wide) => wide ? 180 : 220;
+    public int Order => 60;
+
+    public bool OnBoardByDefault => true;
 
     private sealed class WeatherView : ContentControl
     {
@@ -116,7 +120,7 @@ public sealed class WeatherWidget : IWidget, IConfigurableWidget
 
         private async Task LoadAsync(bool force)
         {
-            var config = App.Settings.Weather;
+            var config = WeatherSettings.Config;
             if (config is null)
             {
                 _condition.Text = "Not set up";
@@ -155,7 +159,7 @@ public sealed class WeatherWidget : IWidget, IConfigurableWidget
             }
         }
 
-        private void Show(Hearth.Core.Settings.WeatherConfig config, WeatherService.Forecast forecast)
+        private void Show(WeatherConfig config, WeatherService.Forecast forecast)
         {
             _last = forecast;
             var (text, symbol) = WeatherService.Describe(forecast.Code, forecast.IsDay);
@@ -176,6 +180,7 @@ public sealed class WeatherWidget : IWidget, IConfigurableWidget
         {
             if (_last is null) return;
 
+            using var theme = WidgetChrome.Scope(_context);
             var s = _context.Scale;
             _days.Children.Clear();
 

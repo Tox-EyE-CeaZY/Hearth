@@ -35,7 +35,11 @@ public static class Log
                 if (!string.IsNullOrEmpty(directory)) System.IO.Directory.CreateDirectory(directory);
 
                 // One run per file. A rolling log would bury the run that
-                // actually matters, which is always the most recent one.
+                // actually matters, which is always the most recent one — but
+                // the run before is kept too, because after a crash the next
+                // start would otherwise wipe the evidence.
+                if (System.IO.File.Exists(Path))
+                    System.IO.File.Copy(Path, System.IO.Path.ChangeExtension(Path, ".previous.log"), overwrite: true);
                 System.IO.File.WriteAllText(Path,
                     $"=== Hearth {header} === {DateTime.Now:yyyy-MM-dd HH:mm:ss}{Environment.NewLine}",
                     Encoding.UTF8);
@@ -69,5 +73,5 @@ public static class Log
     }
 
     public static void Error(string context, Exception ex) =>
-        Write($"ERROR {context}: {ex.GetType().Name}: {ex.Message}{Environment.NewLine}{ex.StackTrace}");
+        Write($"ERROR {context}: {ex}");
 }

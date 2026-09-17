@@ -1,5 +1,9 @@
+using System.IO;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Windows;
-using Hearth.App.Widgets.Weather;
+using Hearth.Core.Diagnostics;
 
 namespace Hearth.App.Widgets;
 
@@ -11,6 +15,8 @@ namespace Hearth.App.Widgets;
 /// since Vista. So widgets here are Hearth's own plugin surface rather than a
 /// bridge to something the OS already provides, which means the contract is
 /// ours to keep small: describe yourself, hand back a view, clean up after it.
+///
+/// How to write one: docs/widgets.md.
 /// </summary>
 public interface IWidget
 {
@@ -32,6 +38,34 @@ public interface IWidget
     /// unloaded, because the desktop layer outlives every individual widget.
     /// </summary>
     FrameworkElement CreateView(WidgetContext context);
+
+    /// <summary>
+    /// Height of the widget's content on the Start menu's Widgets board, in
+    /// board pixels, when it has a column to itself or (wide) the full width.
+    /// </summary>
+    double BoardHeight(bool wide) => Math.Max(1, DefaultSpan.Rows) * 90;
+
+    /// <summary>
+    /// Whether the Widgets board shows it before the user has picked any.
+    /// Leave this off for new widgets, so the board doesn't grow on update.
+    /// </summary>
+    bool OnBoardByDefault => false;
+
+    /// <summary>
+    /// Where the widget sits in the add-widget menus and on the default
+    /// board: lower first, then by title.
+    /// </summary>
+    int Order => 1000;
+
+    /// <summary>
+    /// Called once as Hearth starts, for work that must run whether or not
+    /// the widget is on screen (an alarm, a running timer). Keep it fast:
+    /// the desktop is waiting.
+    /// </summary>
+    void StartServices() { }
+
+    /// <summary>Called once as Hearth exits. Undo whatever <see cref="StartServices"/> started.</summary>
+    void StopServices() { }
 }
 
 /// <summary>
@@ -57,11 +91,19 @@ public sealed record WidgetContext
 
     /// <summary>Matches the home screen's theme so widgets do not fight it.</summary>
     public required bool DarkTheme { get; init; }
+
+    /// <summary>Leave out the card; the host draws its own around the widget.</summary>
+    public bool Bare { get; init; }
 }
 
 /// <summary>
-/// The widgets Hearth knows how to build. A plain static registry for now;
-/// this is the seam an external plugin loader would hook into later.
+/// The widgets Hearth knows how to build.
+///
+/// Found, not listed: every top-level, non-abstract class in the app that
+/// implements <see cref="IWidget"/> directly and has a parameterless
+/// constructor is registered. Adding a widget is
+/// dropping its folder into Widgets/; removing one is deleting the folder.
+/// This is also the seam an external plugin loader would hook into later.
 /// </summary>
 public static class WidgetRegistry
 {
@@ -72,12 +114,71 @@ public static class WidgetRegistry
 
     static WidgetRegistry()
     {
-        Register(new ClockWidget());
-        Register(new MediaWidget());
-        Register(new CalendarWidget());
-        Register(new SystemWidget());
-        Register(new NotesWidget());
-        Register(new WeatherWidget());
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var found = new List<IWidget>();
+        foreach (var type in CandidateTypes())
+        {
+            if (!type.IsClass || type.IsAbstract || !typeof(IWidget).IsAssignableFrom(type)) continue;
+            if (type.GetConstructor(Type.EmptyTypes) is null) continue;
+            try
+            {
+                found.Add((IWidget)Activator.CreateInstance(type)!);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"widget {type.Name}", ex);
+            }
+        }
+
+        foreach (var widget in found.OrderBy(w => w.Order).ThenBy(w => w.Title, StringComparer.CurrentCulture))
+        {
+            if (Widgets.ContainsKey(widget.Id))
+            {
+                Log.Write($"widget id '{widget.Id}' is used twice; {widget.GetType().Name} was left out");
+                continue;
+            }
+            Register(widget);
+        }
+        Log.Write($"widgets: {Widgets.Count} found in {clock.ElapsedMilliseconds} ms");
+    }
+
+    /// <summary>
+    /// Classes that implement <see cref="IWidget"/> directly, read from the
+    /// assembly's metadata. Asking reflection for every type instead
+    /// (<c>GetTypes</c>) loads them all, and some pull in the WinRT
+    /// projection: that took 2.6 s at start-up.
+    /// </summary>
+    private static IEnumerable<Type> CandidateTypes()
+    {
+        var assembly = typeof(IWidget).Assembly;
+        if (string.IsNullOrEmpty(assembly.Location)) return assembly.GetTypes(); // single-file publish
+
+        var names = new List<string>();
+        using (var stream = File.OpenRead(assembly.Location))
+        using (var pe = new PEReader(stream))
+        {
+            var metadata = pe.GetMetadataReader();
+            foreach (var handle in metadata.TypeDefinitions)
+            {
+                var type = metadata.GetTypeDefinition(handle);
+                if ((type.Attributes & (TypeAttributes.Abstract | TypeAttributes.Interface)) != 0) continue;
+                if (!type.GetDeclaringType().IsNil) continue;
+
+                foreach (var implementation in type.GetInterfaceImplementations())
+                {
+                    var face = metadata.GetInterfaceImplementation(implementation).Interface;
+                    if (face.Kind != HandleKind.TypeDefinition) continue;
+                    var definition = metadata.GetTypeDefinition((TypeDefinitionHandle)face);
+                    if (metadata.GetString(definition.Name) != nameof(IWidget) ||
+                        metadata.GetString(definition.Namespace) != typeof(IWidget).Namespace) continue;
+
+                    var ns = metadata.GetString(type.Namespace);
+                    var name = metadata.GetString(type.Name);
+                    names.Add(ns.Length > 0 ? $"{ns}.{name}" : name);
+                }
+            }
+        }
+        return names.Select(n => assembly.GetType(n)).OfType<Type>();
     }
 
     public static void Register(IWidget widget) => Widgets[widget.Id] = widget;

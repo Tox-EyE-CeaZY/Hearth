@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
 
-namespace Hearth.App.Widgets;
+namespace Hearth.App.Widgets.Clock;
 
 /// <summary>
 /// Time and date, in the oversized light type an Android home screen opens
@@ -18,6 +18,11 @@ public sealed class ClockWidget : IWidget
     public (int Columns, int Rows) MinimumSpan => (2, 1);
 
     public FrameworkElement CreateView(WidgetContext context) => new ClockView(context);
+
+    public double BoardHeight(bool wide) => wide ? 140 : 120;
+    public int Order => 10;
+
+    public bool OnBoardByDefault => true;
 
     private sealed class ClockView : FrameworkElement
     {

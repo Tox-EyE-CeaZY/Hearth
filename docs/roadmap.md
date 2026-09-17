@@ -18,6 +18,9 @@ easiest.
 - File drop from Explorer
 - Top-level host pinned to the bottom of the Z-order; Win+D follows the desktop
 - Multi-display layout: fill the primary, overflow to the rest; drag across displays
+- A saved arrangement for each set of displays and grid size: unplugging a display
+  merges its items in at their own size, and plugging it back in restores the
+  old arrangement exactly
 - Home-screen folders: drop an icon onto another to make one, onto a folder to
   add to it; 2x2 preview tile; open panel with rename; drag out to remove;
   one-item folders dissolve into their last item; ungroup
@@ -29,8 +32,27 @@ easiest.
   or city search, prompted when the widget is added)
 - Hide items from the desktop (and unhide from the background menu); delete
   desktop files to the Recycle Bin; Uninstall for apps opens Installed apps
+- Add apps drawer: searchable list of installed apps, one click to add or remove,
+  new apps land where you right-clicked
+- Notification badges on app tiles (from the shell's notification store)
+- Taskbar-style jump lists in app right-click menus
+- Start menu replacement: the Win key and Start button, a blurred backdrop, the
+  Windows theme, its own pages (a 7x4 grid of apps, folders and widgets,
+  copied once from the desktop), All apps, Categories, Widgets, and search
+  over apps, settings, files and the web
 - The real Windows context menu ("Show more options", or Shift+right-click)
   for items and for the desktop background
+- Audio (output and input device switching, volume, mute) and Quick Toggles
+  widgets
+- A widget standard ([Widgets/README.md](../src/Hearth.App/Widgets/README.md)); every widget is a self-contained, auto-discovered folder; `WidgetView` lifetime, theme
+  and thread handling, shared parts, saved data, background services
+- Widgets: Tasks, Timer, Alarms (both ring through Windows' own scheduled
+  alarm notifications, with Hearth's banner when notifications are off),
+  Shelf (drop and drag-out, stash or real folder), Network (speeds, graph,
+  ping), Clipboard (recent text and pins), Recent Files, Speed Dial (apps,
+  websites, files, folders)
+- `start-hearth.cmd` / `start-hearth.ps1`: build, clean quit (`--quit`),
+  run from `artifacts\run`
 
 ## Next
 
@@ -79,13 +101,8 @@ surface, not a pageable home screen.
 approach gives most of the benefit for a fraction of the surface area and none
 of the risk.
 
-## Open question: the Start menu
+## The Start menu
 
-A hotkey-summoned fullscreen overlay using the same grid and the same icon
-pipeline, replacing the Win11 all-apps list. Architecturally this is cheap —
-the grid is already self-contained and the hosting is a mode, so it is a
-different window host over the same components, plus search and an app drawer.
-
-It is arguably more useful day-to-day than the desktop layer, because the
-desktop is covered by windows most of the time and an overlay gets attention on
-demand. Worth building once the desktop layer is solid enough to judge the look.
+Built (see above). Still open: dragging from All apps or search straight
+onto a page, a live (rather than snapshot) blur, and Start's own widget
+designs if the scaled desktop widgets turn out not to be enough.

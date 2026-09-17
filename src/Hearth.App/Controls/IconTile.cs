@@ -2,6 +2,7 @@
 using System.Windows;
 using System.Windows.Media;
 using Hearth.Core.Icons;
+using Hearth.Core.Notifications;
 using Hearth.Core.Shell;
 
 namespace Hearth.App.Controls;
@@ -52,6 +53,29 @@ public sealed class IconTile : FrameworkElement
     public static readonly DependencyProperty IsDropTargetProperty = DependencyProperty.Register(
         nameof(IsDropTarget), typeof(bool), typeof(IconTile),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public static readonly DependencyProperty BadgeProperty = DependencyProperty.Register(
+        nameof(Badge), typeof(Badge), typeof(IconTile),
+        new FrameworkPropertyMetadata(Badge.None, FrameworkPropertyMetadataOptions.AffectsRender, OnBadgeChanged));
+
+    /// <summary>Unread notifications for this app, drawn on the icon's corner.</summary>
+    public Badge Badge
+    {
+        get => (Badge)GetValue(BadgeProperty);
+        set => SetValue(BadgeProperty, value);
+    }
+
+    private FormattedText? _badgeText;
+
+    private static void OnBadgeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) =>
+        ((IconTile)d)._badgeText = null;
+
+    /// <summary>Label colour; when unset, the "LabelBrush" resource (white, for the desktop).</summary>
+    public Brush? LabelBrush { get; set; }
+
+    /// <summary>Folder pad fill and edge; when unset, the desktop's frosted white.</summary>
+    public Brush? FolderPadBrush { get; set; }
+    public Pen? FolderPadEdge { get; set; }
 
     /// <summary>For folder tiles: icons of the first few items inside.</summary>
     public IReadOnlyList<ImageSource>? Previews
@@ -184,6 +208,8 @@ public sealed class IconTile : FrameworkElement
             dc.DrawImage(icon, new Rect(boxX, 0, iconBox, iconBox));
         }
 
+        if (Badge.IsVisible) DrawBadge(dc, boxX + IconSize * ShadowPadRatio, IconSize * ShadowPadRatio);
+
         if (!ShowLabel) return;
 
         var label = GetLabel(width);
@@ -216,7 +242,7 @@ public sealed class IconTile : FrameworkElement
         var shape = IconShape.Get(Shape, size);
 
         dc.PushTransform(new TranslateTransform(x, y));
-        dc.DrawGeometry(FolderFill, FolderEdge, shape);
+        dc.DrawGeometry(FolderPadBrush ?? FolderFill, FolderPadEdge ?? FolderEdge, shape);
 
         var previews = Previews;
         if (previews is { Count: > 0 })
@@ -240,6 +266,43 @@ public sealed class IconTile : FrameworkElement
         dc.Pop();
     }
 
+    private static readonly Brush BadgeFill = Freeze(new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)));
+    private static readonly Pen BadgeEdge = Freeze(new Pen(new SolidColorBrush(Color.FromArgb(0x59, 0, 0, 0)), 1));
+
+    /// <summary>
+    /// A red count (or dot) straddling the icon's top-right corner, sized from
+    /// the icon so it scales with the grid. Counts above 99 read "99+".
+    /// </summary>
+    private void DrawBadge(DrawingContext dc, double iconX, double iconY)
+    {
+        var badge = Badge;
+        var height = Math.Max(10, IconSize * (badge.Count > 0 ? 0.34 : 0.22));
+        var right = iconX + IconSize + height * 0.2;
+        var top = iconY - height * 0.2;
+
+        if (badge.Count <= 0)
+        {
+            var dot = new Rect(right - height, top, height, height);
+            dc.DrawEllipse(BadgeFill, BadgeEdge, new Point(dot.X + height / 2, dot.Y + height / 2), height / 2, height / 2);
+            return;
+        }
+
+        _badgeText ??= new FormattedText(
+            badge.Count > 99 ? "99+" : badge.Count.ToString(CultureInfo.CurrentCulture),
+            CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            new Typeface(new FontFamily("Segoe UI Variable Text, Segoe UI"),
+                FontStyles.Normal, FontWeights.Bold, FontStretches.Normal),
+            height * 0.62,
+            Brushes.White,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+
+        var width = Math.Max(height, _badgeText.Width + height * 0.6);
+        var pill = new Rect(right - width, top, width, height);
+        dc.DrawRoundedRectangle(BadgeFill, BadgeEdge, pill, height / 2, height / 2);
+        dc.DrawText(_badgeText, new Point(pill.X + (width - _badgeText.Width) / 2, pill.Y + (height - _badgeText.Height) / 2));
+    }
+
     private FormattedText? GetLabel(double maxWidth)
     {
         var text = Item?.DisplayName;
@@ -252,7 +315,7 @@ public sealed class IconTile : FrameworkElement
         if (_label is not null && Math.Abs(_labelPixelsPerDip - pixelsPerDip) < 0.001)
             return _label;
 
-        var foreground = Application.Current.TryFindResource("LabelBrush") as Brush ?? Brushes.White;
+        var foreground = LabelBrush ?? Application.Current.TryFindResource("LabelBrush") as Brush ?? Brushes.White;
 
         _labelPixelsPerDip = pixelsPerDip;
         _label = new FormattedText(

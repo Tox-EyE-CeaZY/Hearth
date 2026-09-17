@@ -6,7 +6,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
 
-namespace Hearth.App.Widgets;
+namespace Hearth.App.Widgets.SystemInfo;
 
 /// <summary>
 /// CPU, memory, battery and system-drive usage.
@@ -23,6 +23,11 @@ public sealed class SystemWidget : IWidget
     public (int Columns, int Rows) MinimumSpan => (2, 2);
 
     public FrameworkElement CreateView(WidgetContext context) => new SystemView(context);
+
+    public double BoardHeight(bool wide) => 210;
+    public int Order => 40;
+
+    public bool OnBoardByDefault => true;
 
     private sealed class SystemView : ContentControl
     {
@@ -134,6 +139,7 @@ public sealed class SystemWidget : IWidget
         {
             private readonly TextBlock _value;
             private readonly BarView _bar;
+            private readonly Brush _accent = WidgetChrome.Accent;
             private static readonly Brush WarnBrush = WidgetChrome.Frozen(new SolidColorBrush(Color.FromRgb(0xF2, 0x8B, 0x82)));
 
             public Row(WidgetContext context, string glyph, string label)
@@ -171,7 +177,7 @@ public sealed class SystemWidget : IWidget
 
             public bool Warn
             {
-                set => _bar.Fill = value ? WarnBrush : WidgetChrome.Accent;
+                set => _bar.Fill = value ? WarnBrush : _accent;
             }
 
             public void Set(double fraction, string text)

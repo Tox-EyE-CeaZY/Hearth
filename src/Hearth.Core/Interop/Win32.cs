@@ -258,4 +258,8 @@ internal static partial class Win32
         public uint bmiColors1;
         public uint bmiColors2;
     }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool LockWorkStation();
 }

@@ -2,8 +2,11 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Threading;
 using Hearth.App.Hosting;
+using Hearth.App.Services;
+using Hearth.App.Widgets;
 using Hearth.Core.Diagnostics;
 using Hearth.Core.Icons;
+using Hearth.Core.Notifications;
 using Hearth.Core.Settings;
 
 namespace Hearth.App;
@@ -15,6 +18,10 @@ public partial class App : Application
 
     public static HearthSettings Settings { get; private set; } = new();
     public static IconService Icons { get; private set; } = null!;
+    public static BadgeService Badges { get; private set; } = null!;
+    internal static InstalledApps Apps { get; } = new();
+
+    private StartMenuController? _start;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -25,6 +32,16 @@ public partial class App : Application
         _singleInstance = new Mutex(initiallyOwned: true, "Hearth.DesktopLayer.SingleInstance", out var isFirst);
         if (!isFirst)
         {
+            // "Hearth.exe --start [tab]" asks the running copy to toggle its
+            // Start menu, so any hotkey tool or shortcut can open it.
+            if (StartMenuController.ParseRequest(e.Args) is { } tab) StartMenuController.SendRequest(tab);
+            Shutdown();
+            return;
+        }
+        if (StartMenuController.ParseRequest(e.Args) == StartMenuController.QuitRequest)
+        {
+            // Nothing running to quit; don't start one either.
+            _singleInstance.ReleaseMutex();
             Shutdown();
             return;
         }
@@ -47,6 +64,7 @@ public partial class App : Application
                   $"hideShellIcons={Settings.HideShellIcons}");
 
         Icons = new IconService();
+        Badges = new BadgeService();
 
         _host = new DesktopHost();
         if (!_host.Start())
@@ -56,7 +74,13 @@ public partial class App : Application
                 "or a third-party shell replacement is in use.",
                 "Hearth", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown();
+            return;
         }
+
+        _start = new StartMenuController(Dispatcher);
+        _start.ListenForRequests();
+
+        WidgetServices.Start();
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
@@ -76,8 +100,12 @@ public partial class App : Application
 
     private void TearDown()
     {
+        WidgetServices.Stop();
+        try { _start?.Dispose(); } catch (Exception ex) { Debug.WriteLine(ex); }
+        _start = null;
         try { _host?.Dispose(); } catch (Exception ex) { Debug.WriteLine(ex); }
         try { Icons?.Dispose(); } catch (Exception ex) { Debug.WriteLine(ex); }
+        try { Badges?.Dispose(); } catch (Exception ex) { Debug.WriteLine(ex); }
     }
 
     protected override void OnExit(ExitEventArgs e)

@@ -68,6 +68,12 @@
                       <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
+                    <!-- Icon, for jump list entries. -->
+                    <ContentPresenter x:Name="IconHost" Grid.Column="0"
+                                      ContentSource="Icon"
+                                      Width="16" Height="16"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+
                     <!-- Check mark for the toggleable entries. -->
                     <Path x:Name="Check" Grid.Column="0"
                           Visibility="Collapsed"
@@ -118,6 +124,7 @@
                 </Trigger>
                 <Trigger Property="IsChecked" Value="True">
                   <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                  <Setter TargetName="IconHost" Property="Visibility" Value="Collapsed" />
                 </Trigger>
                 <Trigger Property="HasItems" Value="False">
                   <Setter TargetName="Arrow" Property="Visibility" Value="Collapsed" />
