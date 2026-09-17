@@ -765,6 +765,45 @@ where it is.
   surface. The only cross-folder dependency is Quick Toggles on
   `Audio/AudioService`.
 
+### Installer, 2026-09-16 (night)
+
+- **Inno Setup 6.7.3** was installed per-user with winget
+  (`%LocalAppData%/Programs/Inno Setup 6/ISCC.exe`). No other installer tool
+  was on the machine.
+- `build-installer.ps1` / `.cmd`: `dotnet publish` self-contained win-x64
+  with ReadyToRun (**57.3 MB** setup, 471 files), then ISCC with the
+  version, publish dir and icon passed as defines.
+- `installer/Hearth.iss`:
+  - Installs per-user, with no admin prompt, to `{autopf}/Hearth` (which is
+    `%LocalAppData%/Programs/Hearth`). The folder picker is hidden because
+    install and uninstall wipe the folder.
+  - Optional HKCU Run entry ("Start Hearth when I sign in").
+  - Start menu entries for Hearth, Quit Hearth (`--quit`) and Uninstall.
+  - The uninstaller removes the `AppUserModelId/Hearth.Desktop` key, and
+    asks (unless silent) whether to delete `%AppData%/Hearth` and
+    `%LocalAppData%/Hearth`.
+- `installer/quit-hearth.ps1` is shared by the installer (run from `{tmp}`
+  before copying files), the uninstaller (from `{app}/tools`) and
+  `start-hearth.ps1`. It sends `--quit`, waits 10 s, and only then kills
+  Hearth and shows the desktop icons again.
+- **Icon:** `assets/Hearth.ico` (orange gradient tile, Segoe Fluent flame
+  ECAD), drawn by `installer/make-icon.ps1`, set as the exe's
+  `ApplicationIcon` and the setup icon.
+- **Version** bumped to 0.2.0. The build script stamps
+  `InformationalVersion` as 0.2.0.yyyymmddhhmm; the file version is 0.2.0.0.
+- **Verified on this machine:** a silent install (`/TASKS=""`, so no Run
+  entry) quit the dev Hearth first, installed 471 files and the three
+  shortcuts, and the installed Hearth started (cold first start: discovery
+  259 ms). A silent uninstall quit it and removed the folder, shortcuts,
+  AUMID key and uninstall entry, and kept user data. The dev Hearth was then
+  restarted from `artifacts/run`.
+- **Trap:** in PowerShell `Add-Type` P/Invokes, passing `$null` to a
+  `string` parameter sends `""`, so `FindWindowEx(..., $null)` matches only
+  untitled windows. Pass null from inside the C# instead, as
+  `quit-hearth.ps1` does.
+- **Not tried:** the interactive wizard pages, the "delete my data" prompt,
+  upgrading over an older install, and the sign-in startup entry.
+
 ### Memory
 
 ~450-550 MB working set, stable. Mostly WPF's D3D9 stack plus the Intel driver

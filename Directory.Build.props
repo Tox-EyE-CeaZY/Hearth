@@ -19,8 +19,8 @@
     <Company>Hearth</Company>
     <Product>Hearth</Product>
     <!-- Main.Sub.ActionSet.yyyymmddhhmm -->
-    <Version>0.1.0</Version>
-    <InformationalVersion>0.1.0.202609151200</InformationalVersion>
+    <Version>0.2.0</Version>
+    <InformationalVersion>0.2.0.202609162100</InformationalVersion>
   </PropertyGroup>
 
 </Project>

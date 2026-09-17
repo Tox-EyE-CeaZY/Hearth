@@ -40,6 +40,33 @@ unhandled-exception handler, restores the icon layer.
 If it ever does go wrong, restarting Explorer (Task Manager → Windows Explorer →
 Restart) rebuilds the icon layer from scratch.
 
+## Installing
+
+Run `Hearth-Setup-<version>.exe`. It installs for the current user into
+`%LocalAppData%/Programs/Hearth` (no admin prompt) and includes .NET, so
+nothing else is needed. It can start Hearth when you sign in, and it adds
+Hearth, Quit Hearth and Uninstall Hearth to the Start menu.
+
+- Installing over a running Hearth quits it cleanly first.
+- Uninstalling quits Hearth, removes the app, the sign-in entry and its
+  notification registration, and asks whether to delete your settings,
+  layout and widget data too.
+
+### Building the installer
+
+Double-click `build-installer.cmd` (or run `build-installer.ps1`). It
+publishes Hearth self-contained for win-x64 (ReadyToRun) into
+`artifacts/publish` and compiles `installer/Hearth.iss` into
+`artifacts/installer/Hearth-Setup-<version>.exe`. The version is `<Version>`
+from `Directory.Build.props`, stamped with the build time
+(`Main.Sub.ActionSet.yyyymmddhhmm`). It needs Inno Setup 6:
+
+```powershell
+winget install JRSoftware.InnoSetup --scope user
+```
+
+The app icon is `assets/Hearth.ico`, drawn by `installer/make-icon.ps1`.
+
 ## Building
 
 Requires the **.NET 8 SDK** (with the Windows Desktop workload) and Windows 10

@@ -6,6 +6,7 @@
     <AssemblyName>Hearth</AssemblyName>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\Hearth.ico</ApplicationIcon>
 
     <!-- Self-contained trimming is off: we reflect over COM interfaces. -->
     <PublishTrimmed>false</PublishTrimmed>
