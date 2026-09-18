@@ -55,4 +55,6 @@ if ($left.Count -gt 0) {
     $left | Stop-Process -Force
     $left | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
     [HearthQuit.Shell]::RestoreDesktopIcons()
+    # Tablet mode may have hidden the taskbar; the exe knows what to put back.
+    if ($messenger) { Start-Process -FilePath $messenger -ArgumentList '--restore-shell' -Wait -WindowStyle Hidden }
 }

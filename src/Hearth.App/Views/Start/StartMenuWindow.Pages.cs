@@ -77,7 +77,8 @@ internal sealed partial class StartMenuWindow
         _pageHost.PreviewMouseLeftButtonUp += OnSwipeMouseUp;
         _pageHost.SizeChanged += (_, e) =>
         {
-            if (IsVisible && Math.Abs(e.PreviousSize.Width - e.NewSize.Width) > 1) RebuildPages();
+            if (IsVisible && (Math.Abs(e.PreviousSize.Width - e.NewSize.Width) > 1 ||
+                              (_fullScreen && Math.Abs(e.PreviousSize.Height - e.NewSize.Height) > 1))) RebuildPages();
         };
 
         _pagesEmpty = StartStyle.Label("This page is empty. Drag apps here, or right-click an app anywhere in Start and choose Add to Start.",
@@ -143,7 +144,7 @@ internal sealed partial class StartMenuWindow
             _dragFlip = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
             _dragFlip.Tick += (_, _) =>
             {
-                if (step > 0 && _pageIndex == Pages.Count - 1 && Pages[_pageIndex].Placements.Count > 0)
+                if (step > 0 && !HasNextSpread && Pages[^1].Placements.Count > 0)
                 {
                     _layout.AddPage();
                     UpdatePageChrome();
@@ -215,7 +216,8 @@ internal sealed partial class StartMenuWindow
     {
         if (_apps.Count > 0 && _layout.Prune(ItemExists)) SaveLayout();
 
-        _pageIndex = Math.Clamp(_pageIndex, 0, PageCount - 1);
+        UpdateSpread();
+        _pageIndex = SpreadStart(Math.Clamp(_pageIndex, 0, PageCount - 1));
         _pageHost.Children.Clear();
         _neighbour = null;
         _neighbourIndex = -1;
@@ -245,9 +247,10 @@ internal sealed partial class StartMenuWindow
     private Badge BadgeForTile(LauncherItem item) =>
         Desktop?.BadgeForItem(item.Id) ?? App.Badges.For(item.Id);
 
-    private (double Width, double Height) PageSize() => (
-        _pageHost.ActualWidth > 0 ? _pageHost.ActualWidth : 760,
-        _pageHost.ActualHeight > 0 ? _pageHost.ActualHeight : 420);
+    private (double Width, double Height) PageSize() => _fullScreen
+        ? SpreadPageSize()
+        : (_pageHost.ActualWidth > 0 ? _pageHost.ActualWidth : 760,
+           _pageHost.ActualHeight > 0 ? _pageHost.ActualHeight : 420);
 
     private (double Width, double Height) CellSize()
     {
@@ -255,7 +258,7 @@ internal sealed partial class StartMenuWindow
         return ((width - CellGap) / StartLayout.Columns, (height - CellGap) / StartLayout.Rows);
     }
 
-    private FrameworkElement BuildPage(int index)
+    private FrameworkElement BuildSinglePage(int index)
     {
         var (width, height) = PageSize();
         var (cellWidth, cellHeight) = CellSize();
@@ -436,15 +439,15 @@ internal sealed partial class StartMenuWindow
     {
         var count = PageCount;
         var shown = _pageIndex < Pages.Count ? Pages[_pageIndex] : null;
-        _pagesEmpty.Visibility = shown is null || shown.Placements.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        _previous.Opacity = _pageIndex > 0 ? 1 : 0.25;
-        _next.Opacity = _pageIndex < count - 1 ? 1 : 0.25;
+        _pagesEmpty.Visibility = Spread == 1 && (shown is null || shown.Placements.Count == 0) ? Visibility.Visible : Visibility.Collapsed;
+        _previous.Opacity = HasPreviousSpread ? 1 : 0.25;
+        _next.Opacity = HasNextSpread ? 1 : 0.25;
 
         _dots.Children.Clear();
         for (var i = 0; i < count; i++)
         {
             var page = i;
-            var current = i == _pageIndex;
+            var current = i >= _pageIndex && i < _pageIndex + Spread;
             var dot = new Rectangle
             {
                 Width = current ? 18 : 7,
@@ -493,9 +496,10 @@ internal sealed partial class StartMenuWindow
         menu.Items.Add(Item("New page", AddPageAndShow));
         menu.Items.Add(Item(_editing ? "Done editing" : "Edit pages", () => SetEditing(!_editing)));
 
-        if (Pages.Count > 1 && _pageIndex < Pages.Count)
+        var menuPage = PageIndexOf(anchor, _pageIndex);
+        if (Pages.Count > 1 && menuPage < Pages.Count)
         {
-            var page = Pages[_pageIndex];
+            var page = Pages[menuPage];
             menu.Items.Add(new Separator());
             menu.Items.Add(Item(page.Placements.Count == 0 ? "Delete this page" : "Delete this page (its items leave Start)", () =>
             {
@@ -766,10 +770,10 @@ internal sealed partial class StartMenuWindow
             : null;
     }
 
-    private (DropKind Kind, GridPlacement? Partner) ClassifyDrop(string id, int column, int row, GridPlacement? dragged)
+    private (DropKind Kind, GridPlacement? Partner) ClassifyDrop(int pageIndex, string id, int column, int row, GridPlacement? dragged)
     {
-        if (_pageIndex >= Pages.Count) return (DropKind.None, null);
-        var page = Pages[_pageIndex];
+        if (pageIndex >= Pages.Count) return (DropKind.None, null);
+        var page = Pages[pageIndex];
         var columns = dragged?.ColumnSpan ?? 1;
         var rows = dragged?.RowSpan ?? 1;
 
@@ -802,7 +806,7 @@ internal sealed partial class StartMenuWindow
         if (element is null || dragged is null) return;
 
         var (cellWidth, cellHeight) = CellSize();
-        var draggedOnThisPage = _layout.Locate(dragged.ItemId)?.Page == Pages[_pageIndex];
+        var draggedOnThisPage = _layout.Locate(dragged.ItemId)?.Page == Pages[PageIndexOf(canvas, _pageIndex)];
 
         _swapPreview = element;
         _swapHome = new Point(Canvas.GetLeft(element), Canvas.GetTop(element));
@@ -845,7 +849,7 @@ internal sealed partial class StartMenuWindow
             return;
         }
 
-        var (kind, partner) = ClassifyDrop(id, target.Column, target.Row, target.Dragged);
+        var (kind, partner) = ClassifyDrop(PageIndexOf(canvas, _pageIndex), id, target.Column, target.Row, target.Dragged);
         if (kind == DropKind.None)
         {
             e.Effects = DragDropEffects.None;
@@ -900,10 +904,11 @@ internal sealed partial class StartMenuWindow
         _dragFlip?.Stop();
         var canvas = (Canvas)sender;
         if (DropTarget(canvas, e) is not { } target || e.Data.GetData(DragFormat) is not string id) return;
-        if (_pageIndex >= Pages.Count || _layout.Locate(id) is not { } source) return;
+        var dropPage = PageIndexOf(canvas, _pageIndex);
+        if (dropPage >= Pages.Count || _layout.Locate(id) is not { } source) return;
 
-        var page = Pages[_pageIndex];
-        var (kind, partner) = ClassifyDrop(id, target.Column, target.Row, target.Dragged);
+        var page = Pages[dropPage];
+        var (kind, partner) = ClassifyDrop(dropPage, id, target.Column, target.Row, target.Dragged);
         if (kind == DropKind.None) return;
 
         var fromPage = source.Page;
@@ -938,7 +943,7 @@ internal sealed partial class StartMenuWindow
 
     private static TranslateTransform ShiftOf(FrameworkElement page) => (TranslateTransform)page.RenderTransform;
 
-    private void ChangePage(int step) => GoToPage(_pageIndex + step);
+    private void ChangePage(int step) => GoToPage(_pageIndex + step * Spread);
 
     /// <summary>
     /// Turns to a page. If a swipe already has that page alongside, the two
@@ -947,7 +952,7 @@ internal sealed partial class StartMenuWindow
     /// </summary>
     private void GoToPage(int index)
     {
-        var target = Math.Clamp(index, 0, PageCount - 1);
+        var target = SpreadStart(Math.Clamp(index, 0, PageCount - 1));
         if (target == _pageIndex)
         {
             SnapBack();
@@ -1039,7 +1044,7 @@ internal sealed partial class StartMenuWindow
     private void DragPageBy(double totalX)
     {
         if (_currentPage is null) return;
-        var toward = totalX < 0 ? _pageIndex + 1 : _pageIndex - 1;
+        var toward = totalX < 0 ? _pageIndex + Spread : _pageIndex - Spread;
         var atEdge = totalX == 0 || toward < 0 || toward >= PageCount;
 
         var shift = ShiftOf(_currentPage);
@@ -1106,7 +1111,7 @@ internal sealed partial class StartMenuWindow
             var step = _scrollSwipe < 0 ? 1 : -1;
             _scrollSwipe = 0;
             _scrollSwallowing = true;
-            if (_pageIndex + step >= 0 && _pageIndex + step < PageCount) ChangePage(step);
+            if (step > 0 ? HasNextSpread : HasPreviousSpread) ChangePage(step);
             else SnapBack();
             return new IntPtr(1);
         }
@@ -1140,8 +1145,8 @@ internal sealed partial class StartMenuWindow
 
     private void FinishSwipe(double totalX)
     {
-        if (totalX <= -SwipeThreshold && _pageIndex < PageCount - 1) ChangePage(1);
-        else if (totalX >= SwipeThreshold && _pageIndex > 0) ChangePage(-1);
+        if (totalX <= -SwipeThreshold && HasNextSpread) ChangePage(1);
+        else if (totalX >= SwipeThreshold && HasPreviousSpread) ChangePage(-1);
         else SnapBack();
     }
 

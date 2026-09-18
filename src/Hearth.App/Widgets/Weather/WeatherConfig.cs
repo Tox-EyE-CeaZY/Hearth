@@ -58,7 +58,7 @@ internal static class WeatherSettings
             data.Place ??= legacy.Deserialize<WeatherConfig>();
             Store.Save(data);
             App.Settings.LegacyWeather = null;
-            App.Settings.Save();
+            App.Settings.Save(); // check-widgets: allow - one-time move out of settings.json
             Log.Write("weather: settings moved to weather.json");
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)

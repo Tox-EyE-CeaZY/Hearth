@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Net.Http;
 using System.Text.Json;
 using Hearth.Core.Diagnostics;
-using Windows.Devices.Geolocation;
+using Windows.Devices.Geolocation; // check-widgets: allow - only used after an await, off the start-up path
 
 namespace Hearth.App.Widgets.Weather;
 

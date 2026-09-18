@@ -100,8 +100,16 @@ output, and a failed build leaves the running Hearth alone.
 If PowerShell refuses to run scripts on your machine, use the `.cmd` file,
 which runs the script with `-ExecutionPolicy Bypass`.
 
-`Hearth.exe --quit` and `Hearth.exe --start [pages|all|categories|widgets]`
-also work on their own, sent to the running copy.
+These also work on their own, sent to the running copy:
+
+- `Hearth.exe --quit`
+- `Hearth.exe --start [pages|all|categories|widgets]`
+- `Hearth.exe --tablet on|off|auto|toggle|recents`
+- `Hearth.exe --launch <app id or path>`
+- `Hearth.exe --settings [tablet|tabletparts|home|start|startup|about]`
+
+`Hearth.exe --restore-shell` shows the taskbar and desktop icons again if
+Hearth was killed.
 
 ## Layout
 
@@ -113,21 +121,42 @@ also work on their own, sent to the running copy.
 | `src/Hearth.Core/Layout` | Grid model and persistence |
 | `src/Hearth.Core/Wallpaper` | Reading the user's wallpaper per monitor |
 | `src/Hearth.App/Hosting` | The WorkerW desktop-layer attachment |
-| `src/Hearth.App/Views` | The home screen window and its interactions |
+| `src/Hearth.App/Views` | The home screen window and its interactions; `SettingsScreen/` is the settings window |
+| `src/Hearth.App/Tablet` | Tablet mode: hardware detection, taskbar, navigation bar, recent apps, gestures |
 | `src/Hearth.App/Widgets` | Everything widget-related: the contract, shared parts (`Framework/`), and one self-contained folder per widget. **[How to write a widget](src/Hearth.App/Widgets/README.md)** |
 
 `Hearth.Core` knows nothing about hosting or app lifetime, so the catalogs and
 the icon pipeline can be lifted into another WPF host as-is.
 
+## Tablet mode
+
+Windows 10's tablet mode, on top of Hearth: the taskbar is hidden, a
+navigation bar (Back, Home, Recent apps) is added, apps open maximized,
+Start fills the screen with pages side by side, and you can swipe in from
+the screen edges. Recent apps has a **Tray** drop-down with every notification-area
+icon: tap one to open it, press and hold (or right-click) for its menu.
+Every part can be switched off on its own.
+
+- **Auto** (the default) turns tablet mode on when no keyboard or mouse is
+  attached, on machines with a touchscreen. The settings screen lists every
+  keyboard, mouse and touchpad Hearth sees, and whether each one counts.
+- **Ctrl+Win+T** switches tablet mode by hand. In Auto, that choice lasts
+  until a keyboard or mouse is plugged in or removed.
+- The taskbar always comes back when tablet mode ends or Hearth closes,
+  including after a crash (a small watchdog process runs while the taskbar
+  is hidden).
+
 ## Settings
 
-Right-click the desktop background. Shape, icon size, home style, labels,
-widgets and the installed-apps toggle all live there.
+Right-click the desktop background and choose **Settings...**, or use
+Start's **...** menu. The common options are also on the right-click menu.
 
 Stored as JSON you can edit directly:
 
 - `%AppData%\Hearth\settings.json`
 - `%AppData%\Hearth\layout.json`
+- `%AppData%\Hearth\tablet.json` — tablet mode settings
+- `%LocalAppData%\Hearth\shell-state.json` — what tablet mode changed about the taskbar, for crash recovery
 - `%LocalAppData%\Hearth\icons\` — rendered tile cache, safe to delete
 - `%AppData%\Hearth\*.json` — widget data (tasks, alarms, timer, shelf,
   Speed Dial, clipboard pins)

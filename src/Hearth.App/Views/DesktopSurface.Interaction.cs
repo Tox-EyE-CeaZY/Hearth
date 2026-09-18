@@ -655,7 +655,7 @@ public partial class DesktopSurface
             return;
         }
 
-        if (!ShellLauncher.Launch(item))
+        if (!Services.AppLauncher.Launch(item))
             Log.Write($"failed to launch '{item.DisplayName}'");
     }
 
@@ -670,7 +670,7 @@ public partial class DesktopSurface
 
         menu.Items.Add(MenuItemFor("Open", () =>
         {
-            ShellLauncher.Launch(item);
+            Services.AppLauncher.Launch(item);
             if (inFolder is not null) CloseFolder();
         }));
 
@@ -1066,6 +1066,26 @@ public partial class DesktopSurface
         // Adding things is the most common reason to right-click empty space.
         menu.Items.Add(MenuItemFor("Add apps...", () => OpenAddApps(at)));
         menu.Items.Add(MenuItemFor("Open Start menu", () => Hosting.StartMenuController.Current?.Open()));
+        menu.Items.Add(MenuItemFor("Settings...", () => SettingsScreen.SettingsWindow.Open()));
+
+        if (Tablet.TabletMode.Current is { } tablet)
+        {
+            var mode = new MenuItem { Header = tablet.IsActive ? "Tablet mode (on)" : "Tablet mode (off)" };
+            mode.Items.Add(MenuItemFor(tablet.IsActive ? "Leave tablet mode now" : "Enter tablet mode now", tablet.Toggle));
+            mode.Items.Add(new Separator());
+            foreach (var (value, label) in new[]
+                     {
+                         (TabletModeSetting.Auto, "Auto (follow the keyboard and mouse)"),
+                         (TabletModeSetting.On, "Always on"),
+                         (TabletModeSetting.Off, "Always off"),
+                     })
+            {
+                mode.Items.Add(CheckableMenuItem(label, tablet.Settings.Mode == value, () => tablet.SetMode(value)));
+            }
+            mode.Items.Add(new Separator());
+            mode.Items.Add(MenuItemFor("Tablet settings...", () => SettingsScreen.SettingsWindow.Open("tablet")));
+            menu.Items.Add(mode);
+        }
         menu.Items.Add(new Separator());
 
         // Shape is the single highest-leverage setting, so it comes first.

@@ -76,7 +76,7 @@ internal sealed class WeatherSetupWindow : Window
             HorizontalAlignment = HorizontalAlignment.Left,
         };
         _openLocationSettings.Click += (_, _) =>
-            Process.Start(new ProcessStartInfo("ms-settings:privacy-location") { UseShellExecute = true });
+            Hearth.Core.Shell.ShellLauncher.Open("ms-settings:privacy-location");
 
         var orSearch = Muted("or search for a city");
         orSearch.Margin = new Thickness(0, 22, 0, 8);

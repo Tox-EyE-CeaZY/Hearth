@@ -33,6 +33,9 @@ public sealed class DesktopHost : IDisposable
 
     public DesktopSurface? Surface => _surface;
 
+    /// <summary>Whether the desktop is in front of the apps (after Win+D).</summary>
+    public bool IsDesktopShown => _raisedOverDesktop;
+
     /// <summary>The live host, for the few UI paths that need window-level control.</summary>
     public static DesktopHost? Current { get; private set; }
 
@@ -274,6 +277,7 @@ public sealed class DesktopHost : IDisposable
                 Log.Write("display change settled; resizing surface");
                 Resize();
                 _surface?.Rebuild();
+                Tablet.TabletMode.Current?.OnDisplaysChanged();
             };
         }
 
@@ -320,6 +324,7 @@ public sealed class DesktopHost : IDisposable
                     _layer.ForgetHandles();
                     if (App.Settings.HideShellIcons) _layer.HideShellIcons();
                     SendToBottom();
+                    Tablet.TabletMode.Current?.OnExplorerRestarted();
                 }
                 break;
         }

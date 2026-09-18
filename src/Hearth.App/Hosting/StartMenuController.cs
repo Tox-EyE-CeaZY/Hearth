@@ -129,12 +129,28 @@ internal sealed class StartMenuController : IDisposable
     private EventWaitHandle? _requests;
     private RegisteredWaitHandle? _requestWait;
 
-    /// <summary>"--start" or "--start all|pages|categories|widgets"; null when absent.</summary>
     public const string QuitRequest = "quit";
+    public const string TabletPrefix = "tablet:";
+    public const string SettingsPrefix = "settings:";
+    public const string LaunchPrefix = "launch:";
 
+    /// <summary>
+    /// "--start [all|pages|categories|widgets|edit|selftest]", "--quit",
+    /// "--tablet on|off|auto|toggle|recents|evaluate" or "--settings [page]";
+    /// null when absent.
+    /// </summary>
     public static string? ParseRequest(string[] args)
     {
         if (args.Any(a => a.Equals("--quit", StringComparison.OrdinalIgnoreCase))) return QuitRequest;
+
+        var tablet = Array.FindIndex(args, a => a.Equals("--tablet", StringComparison.OrdinalIgnoreCase));
+        if (tablet >= 0) return TabletPrefix + (tablet + 1 < args.Length ? args[tablet + 1].ToLowerInvariant() : "toggle");
+
+        var launch = Array.FindIndex(args, a => a.Equals("--launch", StringComparison.OrdinalIgnoreCase));
+        if (launch >= 0 && launch + 1 < args.Length) return LaunchPrefix + args[launch + 1];
+
+        var settings = Array.FindIndex(args, a => a.Equals("--settings", StringComparison.OrdinalIgnoreCase));
+        if (settings >= 0) return SettingsPrefix + (settings + 1 < args.Length ? args[settings + 1].ToLowerInvariant() : string.Empty);
 
         var index = Array.FindIndex(args, a => a.Equals("--start", StringComparison.OrdinalIgnoreCase));
         if (index < 0) return null;
@@ -165,29 +181,116 @@ internal sealed class StartMenuController : IDisposable
             string tab;
             try { tab = System.IO.File.ReadAllText(RequestFile).Trim(); }
             catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException) { tab = string.Empty; }
-            _dispatcher.BeginInvoke(() =>
-            {
-                if (IsOpen && tab.Length == 0)
-                {
-                    _window!.HideMenu();
-                    return;
-                }
-                // "Hearth.exe --quit": the same clean exit as the menu item,
-                // so scripts can restart Hearth without leaving icons hidden.
-                if (tab == QuitRequest)
-                {
-                    Application.Current.Shutdown();
-                    return;
-                }
-                if (tab == "selftest")
-                {
-                    Open();
-                    _ = _window?.RunSelfTestAsync();
-                    return;
-                }
-                Open(tab.Length > 0 ? tab : null);
-            });
+            _dispatcher.BeginInvoke(() => HandleRequest(tab));
         }, null, Timeout.Infinite, executeOnlyOnce: false);
+    }
+
+    /// <summary>Carries out a request from another Hearth.exe (or this one's own command line).</summary>
+    public void HandleRequest(string tab)
+    {
+        try
+        {
+            if (tab.StartsWith(TabletPrefix, StringComparison.Ordinal))
+            {
+                HandleTabletRequest(tab[TabletPrefix.Length..]);
+                return;
+            }
+            if (tab.StartsWith(LaunchPrefix, StringComparison.Ordinal))
+            {
+                // "Hearth.exe --launch <app id or path>": the same launch as a tap on a tile.
+                var target = tab[LaunchPrefix.Length..];
+                var item = App.Apps.Current.FirstOrDefault(a => a.Id.Equals(target, StringComparison.OrdinalIgnoreCase))
+                           ?? new Hearth.Core.Shell.LauncherItem
+                           {
+                               Id = target,
+                               DisplayName = System.IO.Path.GetFileName(target),
+                               Kind = Hearth.Core.Shell.LauncherItemKind.File,
+                               Target = target,
+                           };
+                Services.AppLauncher.Launch(item);
+                return;
+            }
+            if (tab.StartsWith(SettingsPrefix, StringComparison.Ordinal))
+            {
+                Views.SettingsScreen.SettingsWindow.Open(tab[SettingsPrefix.Length..]);
+                return;
+            }
+            if (IsOpen && tab.Length == 0)
+            {
+                _window!.HideMenu();
+                return;
+            }
+            // "Hearth.exe --quit": the same clean exit as the menu item,
+            // so scripts can restart Hearth without leaving icons hidden.
+            if (tab == QuitRequest)
+            {
+                Application.Current.Shutdown();
+                return;
+            }
+            if (tab == "selftest")
+            {
+                Open();
+                _ = _window?.RunSelfTestAsync();
+                return;
+            }
+            Open(tab.Length > 0 ? tab : null);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"request '{tab}'", ex);
+        }
+    }
+
+    private static void HandleTabletRequest(string what)
+    {
+        if (Tablet.TabletMode.Current is not { } tablet)
+        {
+            Log.Write($"tablet request '{what}' ignored: tablet mode is not running");
+            return;
+        }
+        Log.Write($"tablet request: {what}");
+        if (what.StartsWith("trayclick:", StringComparison.Ordinal) || what.StartsWith("traymenu:", StringComparison.Ordinal))
+        {
+            // Test hook: the same click or menu as a tile in the tray shade.
+            var menu = what.StartsWith("traymenu:", StringComparison.Ordinal);
+            var name = what[(what.IndexOf(':') + 1)..];
+            _ = Task.Run(async () =>
+            {
+                var icon = (await Tablet.TrayIcons.ReadAsync(includeHidden: true).ConfigureAwait(false))
+                    .FirstOrDefault(i => i.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+                if (icon is null) Log.Write($"tray: no icon matching '{name}'");
+                else await Tablet.TrayIcons.ActivateAsync(icon, menu).ConfigureAwait(false);
+            });
+            return;
+        }
+        switch (what)
+        {
+            case "on": tablet.SetMode(TabletModeSetting.On); break;
+            case "off": tablet.SetMode(TabletModeSetting.Off); break;
+            case "auto": tablet.SetMode(TabletModeSetting.Auto); break;
+            case "toggle": tablet.Toggle(); break;
+            case "desktop": tablet.ForceDesktop(); break;
+            case "recents": tablet.ShowTaskSwitcher(); break;
+            case "recents-tray": tablet.ShowTaskSwitcher(withTray: true); break;
+            case "home": tablet.GoHome(); break;
+            case "evaluate": tablet.Evaluate(settled: true, prompt: false); break;
+            case "tray":
+                _ = Task.Run(async () =>
+                {
+                    foreach (var icon in await Tablet.TrayIcons.ReadAsync(includeHidden: true).ConfigureAwait(false))
+                        Log.Write($"tray icon: {(icon.Hidden ? "hidden " : "shown  ")} '{icon.Title}' image={(icon.Image is null ? "none" : "yes")}");
+                });
+                break;
+            default: Log.Write($"tablet request '{what}' not understood"); break;
+        }
+    }
+
+    /// <summary>Drops the hidden window so the next open builds it with current settings (a new backdrop).</summary>
+    public void InvalidateWindow()
+    {
+        if (_window is null || _window.IsVisible) return;
+        _window.CloseForExit();
+        _window = null;
     }
 
     /// <summary>The window, rebuilt if the Windows theme changed since it was made.</summary>

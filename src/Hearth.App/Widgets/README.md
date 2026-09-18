@@ -10,11 +10,17 @@ to change either way.
 Widgets/
   README.md          this file: the standard
   IWidget.cs         the contract, and the registry that finds widgets
+  GEMINI.md          the rulebook for AI assistants (and a quick checklist for people)
   Framework/         parts every widget shares (see Framework/README.md)
+  _Template/         a copyable starter widget (.txt files, so they aren't compiled)
   Clock/  Media/  Calendar/  SystemInfo/  Notes/  Weather/
   Audio/  QuickToggles/  Tasks/  Timers/  Alarms/  Shelf/
   Network/  Clipboard/  RecentFiles/  SpeedDial/
 ```
+
+> **AI assistants and quick edits:** follow [GEMINI.md](GEMINI.md), the
+> step-by-step rulebook. Start new widgets from [_Template/](_Template/), and
+> finish with `tools/check-widgets.cmd`, which must report **PASSED**.
 
 Each widget folder has its own `README.md`: what the widget does, its files,
 where its data is kept, what runs in the background, and what to watch out
@@ -281,6 +287,36 @@ don't guess.
 | Desktop | Full interaction. Laid out in physical pixels. The widget can be resized, unlocked and dragged by any part that doesn't handle the press. |
 | Start pages | Laid out at desktop density and scaled with a `Viewbox`. The widget's own controls don't respond there; the whole widget drags. |
 | Start Widgets board | Interactive, `Bare` (no card of its own), `BoardHeight` tall, half or full width. |
+
+## New widgets need a rebuild
+
+Widgets are compiled into `Hearth.exe`, and `WidgetRegistry` looks for them
+once, when Hearth starts. The desktop's **Refresh** re-reads desktop files
+and apps only, so it won't pick up a new widget folder. Run
+`start-hearth.cmd`, which builds and restarts Hearth. Loading widgets from
+separate DLLs without a rebuild is planned (see `Claude/tablet-mode-plan.md`,
+"Widget plugins").
+
+## Checking your work
+
+`tools/check-widgets.cmd` (or `tools/check-widgets.ps1`) must end with
+**PASSED**. It fails on:
+
+- changes outside `Widgets/`,
+- invisible or mangled characters,
+- a missing README or widget file,
+- a folder or type named so that it hides another type,
+- a namespace that doesn't match its folder,
+- a widget Hearth wouldn't find, or a duplicate id,
+- `Process.Start`, `Environment.Exit`, direct keyboard calls, or use of
+  `HearthSettings`,
+- glyphs that don't exist,
+- any build warning or error.
+
+It also warns about risky calls: blocking waits, `async void`, new
+`HttpClient`s, deletions, the registry, WinRT, and raw timers in views.
+`-All` scans every folder, and `-NoBuild` skips the build. A line that breaks
+a rule on purpose ends with `// check-widgets: allow - <reason>`.
 
 ## Testing
 

@@ -5,7 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Hearth.Core.Diagnostics;
-using Windows.Media.Control;
+using Windows.Media.Control; // check-widgets: allow - predates the rule; see README
 using PlaybackStatus = Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus;
 
 namespace Hearth.App.Widgets.Media;

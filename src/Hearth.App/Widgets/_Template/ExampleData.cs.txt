@@ -1,0 +1,43 @@
+// TEMPLATE: the widget's saved data. Rename to <YourName>Data.cs (see ExampleWidget.cs.txt).
+
+namespace Hearth.App.Widgets.Example;
+
+// Saved as JSON. Only ever ADD properties later; old files must keep loading.
+internal sealed class ExampleItem
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Text { get; set; } = string.Empty;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+internal sealed class ExampleFile
+{
+    public List<ExampleItem> Items { get; set; } = [];
+}
+
+/// <summary>
+/// The one copy of the data every Example widget shows. UI thread only.
+/// Saved to %AppData%/Hearth/example.json.
+/// </summary>
+internal static class ExampleData
+{
+    private static readonly WidgetStore<ExampleFile> Store = new("example.json");
+    private static ExampleFile? _file;
+
+    public static event Action? Changed;
+
+    private static ExampleFile File => _file ??= Store.Load();
+
+    public static IReadOnlyList<ExampleItem> Items => File.Items;
+
+    public static void Add(string text) => Update(f => f.Items.Add(new ExampleItem { Text = text }));
+
+    public static void Remove(string id) => Update(f => f.Items.RemoveAll(i => i.Id == id));
+
+    private static void Update(Action<ExampleFile> change)
+    {
+        change(File);
+        Store.Save(File);
+        Changed?.Invoke();
+    }
+}

@@ -191,7 +191,8 @@ internal sealed class StartTrigger : IDisposable
 
         static bool Hit(IntPtr bar, POINT pt)
         {
-            if (bar == IntPtr.Zero) return false;
+            // A hidden taskbar (tablet mode) keeps its Start button's rectangle.
+            if (bar == IntPtr.Zero || !IsWindowVisible(bar)) return false;
             var start = FindWindowEx(bar, IntPtr.Zero, "Start", null);
             if (start == IntPtr.Zero || !GetWindowRect(start, out var rect)) return false;
             if (rect.Right - rect.Left <= 0) return false;
@@ -414,4 +415,7 @@ internal sealed class StartTrigger : IDisposable
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hwnd);
 }

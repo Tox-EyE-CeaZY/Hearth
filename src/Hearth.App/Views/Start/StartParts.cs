@@ -828,6 +828,24 @@ internal static class SystemTheme
     /// </summary>
     public static Color Accent(bool light)
     {
+        // Explorer keeps the same palette in the registry: entries are RGBA,
+        // [1] AccentLight2 and [4] AccentDark1 (checked against UISettings).
+        // Reading it avoids WinRT, whose first use stalls every assembly load
+        // in the process for about 2.6 s.
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent");
+            if (key?.GetValue("AccentPalette") is byte[] { Length: >= 32 } palette)
+            {
+                var i = (light ? 4 : 1) * 4;
+                return Color.FromRgb(palette[i], palette[i + 1], palette[i + 2]);
+            }
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            Log.Write($"accent palette unreadable: {ex.Message}");
+        }
+
         try
         {
             var settings = new Windows.UI.ViewManagement.UISettings();

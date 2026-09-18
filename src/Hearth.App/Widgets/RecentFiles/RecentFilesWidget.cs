@@ -112,7 +112,7 @@ public sealed class RecentFilesWidget : IWidget
             _debounce.Change(1000, Timeout.Infinite);
         }
 
-        private async void Reload()
+        private async void Reload() // check-widgets: allow - fire-and-forget; the awaited work is wrapped in try/catch
         {
             if (Interlocked.Exchange(ref _loading, 1) == 1) return;
             try
@@ -171,7 +171,7 @@ public sealed class RecentFilesWidget : IWidget
                 menu.Items.Add(new Separator());
                 menu.Items.Add(WidgetMenu.Item("Remove from Recent", () =>
                 {
-                    File.Delete(file.LinkPath);
+                    File.Delete(file.LinkPath); // check-widgets: allow - removes a Recent shortcut, not the file itself
                     Reload();
                 }));
             });

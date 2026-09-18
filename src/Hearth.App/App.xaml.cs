@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Threading;
 using Hearth.App.Hosting;
 using Hearth.App.Services;
+using Hearth.App.Tablet;
 using Hearth.App.Widgets;
 using Hearth.Core.Diagnostics;
 using Hearth.Core.Icons;
@@ -22,10 +23,20 @@ public partial class App : Application
     internal static InstalledApps Apps { get; } = new();
 
     private StartMenuController? _start;
+    private TabletMode? _tablet;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Helper runs of the same exe, which never become a desktop: the
+        // watchdog (tablet mode's crash insurance) and the restore command
+        // the quit script runs after a kill.
+        if (RunHelperCommand(e.Args))
+        {
+            Shutdown();
+            return;
+        }
 
         // Two copies would fight over the same WorkerW and leave the icon layer
         // in whichever state the loser happened to set last.
@@ -80,7 +91,40 @@ public partial class App : Application
         _start = new StartMenuController(Dispatcher);
         _start.ListenForRequests();
 
+        try
+        {
+            _tablet = new TabletMode(Dispatcher);
+        }
+        catch (Exception ex)
+        {
+            // Tablet mode is an extra; the desktop must come up without it.
+            Log.Error("tablet mode start", ex);
+            TaskbarControl.Restore();
+        }
+
         WidgetServices.Start();
+
+        // "Hearth.exe --tablet on" or "--settings" as the first start still does what it says.
+        if (StartMenuController.ParseRequest(e.Args) is { } request &&
+            (request.StartsWith(StartMenuController.TabletPrefix, StringComparison.Ordinal) ||
+             request.StartsWith(StartMenuController.SettingsPrefix, StringComparison.Ordinal)))
+            Dispatcher.BeginInvoke(() => _start.HandleRequest(request), DispatcherPriority.ApplicationIdle);
+    }
+
+    private static bool RunHelperCommand(string[] args)
+    {
+        var index = Array.FindIndex(args, a => a.Equals(Watchdog.Argument, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0)
+        {
+            if (index + 1 < args.Length && int.TryParse(args[index + 1], out var parent)) Watchdog.Run(parent);
+            return true;
+        }
+        if (args.Any(a => a.Equals(Watchdog.RestoreArgument, StringComparison.OrdinalIgnoreCase)))
+        {
+            Watchdog.RestoreShell();
+            return true;
+        }
+        return false;
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
@@ -101,6 +145,9 @@ public partial class App : Application
     private void TearDown()
     {
         WidgetServices.Stop();
+        // Tablet mode first: it puts the taskbar back and closes its bars.
+        try { _tablet?.Dispose(); } catch (Exception ex) { Debug.WriteLine(ex); }
+        _tablet = null;
         try { _start?.Dispose(); } catch (Exception ex) { Debug.WriteLine(ex); }
         _start = null;
         try { _host?.Dispose(); } catch (Exception ex) { Debug.WriteLine(ex); }

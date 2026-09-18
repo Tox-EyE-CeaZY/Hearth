@@ -19,6 +19,40 @@ public static class ShellLauncher
         return Invoke(ResolveTarget(item), verb: null);
     }
 
+    /// <summary>
+    /// The program an item starts, when that can be known: an .exe itself,
+    /// or the target of a shortcut or of an installed desktop app (its
+    /// System.Link.TargetParsingPath). Null for Store apps and documents.
+    /// </summary>
+    public static string? ProgramPathOf(LauncherItem item)
+    {
+        var target = item.Target;
+        if (string.IsNullOrEmpty(target)) return null;
+        if (item.Kind != LauncherItemKind.App && target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return target;
+        if (item.Kind is not (LauncherItemKind.App or LauncherItemKind.Shortcut)) return null;
+
+        try
+        {
+            var iid = ShellLinkNative.IID_IPropertyStore;
+            ShellLinkNative.SHGetPropertyStoreFromParsingName(ResolveTarget(item), IntPtr.Zero, ShellLinkNative.GPS_DEFAULT, ref iid, out var store);
+            try
+            {
+                var path = ShellLinkNative.GetString(store, LinkTargetParsingPath);
+                return path is not null && path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? path : null;
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(store);
+            }
+        }
+        catch (Exception ex) when (ex is COMException or ArgumentException or InvalidCastException or FileNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    private static PROPERTYKEY LinkTargetParsingPath = new("B9B4B3FC-2B51-4A42-B5D8-324146AFCF25", 2);
+
     /// <summary>Opens a path, link or URI with its default handler.</summary>
     public static bool Open(string target) => Invoke(target, verb: null);
 

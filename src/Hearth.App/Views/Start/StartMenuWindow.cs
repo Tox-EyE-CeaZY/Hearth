@@ -45,6 +45,8 @@ internal sealed partial class StartMenuWindow : Window
     private readonly Grid _backdrop = new();
     private readonly Border _avatar = new();
     private IntPtr _heldTaskbar;
+    private FrameworkElement _searchBox = null!;
+    private FrameworkElement _tabStrip = null!;
 
     private Dictionary<string, LauncherItem> _apps = new(StringComparer.OrdinalIgnoreCase);
     private string _activeTab = PagesTab;
@@ -107,9 +109,11 @@ internal sealed partial class StartMenuWindow : Window
         searchGlyph.IsHitTestVisible = false;
 
         var searchBox = new Grid { Margin = new Thickness(24, 22, 24, 0), Children = { _search, searchGlyph, _searchHint } };
+        _searchBox = searchBox;
 
         // ---- tabs -------------------------------------------------------
         var tabStrip = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(22, 14, 24, 8) };
+        _tabStrip = tabStrip;
         foreach (var (key, text) in new[]
                  {
                      (PagesTab, "Pages"), (AllAppsTab, "All apps"),
@@ -180,6 +184,12 @@ internal sealed partial class StartMenuWindow : Window
         };
 
         Deactivated += (_, _) => HideMenuFor("deactivated", "");
+        // Full screen: a tap on the backdrop around the panel closes Start.
+        MouseLeftButtonUp += (_, e) =>
+        {
+            if (_fullScreen && e.OriginalSource is DependencyObject source && !IsWithin(source, _foreground))
+                HideMenuFor("tapped outside", "");
+        };
         PreviewKeyDown += OnWindowKey;
         PreviewTextInput += OnWindowText;
         App.Badges.Changed += () => Dispatcher.InvokeAsync(RefreshBadges);
@@ -222,7 +232,8 @@ internal sealed partial class StartMenuWindow : Window
             CaptureBackdrop(rect);
         Mark("backdrop");
 
-        HoldTaskbar(hwnd, placement?.Taskbar ?? IntPtr.Zero);
+        // Full screen (tablet mode) has no taskbar to hold up.
+        HoldTaskbar(hwnd, _fullScreen || Tablet.TaskbarControl.IsHiddenByUs ? IntPtr.Zero : placement?.Taskbar ?? IntPtr.Zero);
 
         if (!IsVisible) Show();
         Mark("show");
@@ -348,7 +359,81 @@ internal sealed partial class StartMenuWindow : Window
         base.OnClosing(e);
     }
 
-    private readonly record struct Placement(Int32Rect Rect, double Scale, IntPtr Taskbar);
+    private readonly record struct Placement(Int32Rect Rect, double Scale, IntPtr Taskbar, bool FullScreen = false);
+
+    private bool _fullScreen;
+
+    private static bool IsWithin(DependencyObject node, DependencyObject ancestor)
+    {
+        for (var current = node; current is not null;
+             current = current is Visual or System.Windows.Media.Media3D.Visual3D
+                 ? VisualTreeHelper.GetParent(current) ?? LogicalTreeHelper.GetParent(current)
+                 : LogicalTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, ancestor)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Tablet mode's Start: the whole work area of the display (which already
+    /// leaves out the navigation bar). The content fills it at a slightly
+    /// larger scale than the floating menu, and the Pages view uses the room
+    /// to show pages side by side (see StartMenuWindow.Spread.cs) rather than
+    /// one enlarged page.
+    /// </summary>
+    private Placement? PlaceFullScreen(IntPtr hwnd, IntPtr monitor, MONITORINFO info, double scale)
+    {
+        var work = info.rcWork;
+        var width = work.Right - work.Left;
+        var height = work.Bottom - work.Top;
+        var widthDips = width / scale;
+        var heightDips = height / scale;
+        var ui = Math.Clamp(Math.Min(widthDips / 1440, heightDips / 900), 1, 1.4);
+
+        _root.LayoutTransform = Transform.Identity;
+        _foreground.Width = widthDips / ui;
+        _foreground.Height = heightDips / ui;
+        _foreground.LayoutTransform = new ScaleTransform(ui, ui);
+        _foreground.HorizontalAlignment = HorizontalAlignment.Center;
+        _foreground.VerticalAlignment = VerticalAlignment.Center;
+        _searchBox.MaxWidth = 760;
+        _searchBox.HorizontalAlignment = HorizontalAlignment.Center;
+        _searchBox.Width = 760;
+        _tabStrip.HorizontalAlignment = HorizontalAlignment.Center;
+        SetCorners(hwnd, round: false);
+
+        SetWindowPos(hwnd, IntPtr.Zero, work.Left, work.Top, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+        return new Placement(new Int32Rect(work.Left, work.Top, width, height), scale, IntPtr.Zero, FullScreen: true);
+    }
+
+    /// <summary>Pages were built for the other presentation; lay out and build them again.</summary>
+    private void RelayoutPagesNow()
+    {
+        _root.UpdateLayout();
+        RebuildPages();
+    }
+
+    private void ResetFloatingLayout(IntPtr hwnd)
+    {
+        _foreground.Width = double.NaN;
+        _foreground.Height = double.NaN;
+        _foreground.LayoutTransform = Transform.Identity;
+        _foreground.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _foreground.VerticalAlignment = VerticalAlignment.Stretch;
+        _searchBox.MaxWidth = double.PositiveInfinity;
+        _searchBox.Width = double.NaN;
+        _searchBox.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _tabStrip.HorizontalAlignment = HorizontalAlignment.Left;
+        _content.MaxWidth = double.PositiveInfinity;
+        SetCorners(hwnd, round: true);
+    }
+
+    private static void SetCorners(IntPtr hwnd, bool round)
+    {
+        var preference = round ? 2 : 1; // DWMWCP_ROUND : DWMWCP_DONOTROUND
+        DwmSetWindowAttribute(hwnd, 33, ref preference, sizeof(int));
+    }
 
     /// <summary>
     /// Centres the menu above the taskbar of the display at the point, a
@@ -363,6 +448,20 @@ internal sealed partial class StartMenuWindow : Window
         if (!GetMonitorInfo(monitor, ref info)) return null;
 
         var scale = GetDpiForMonitor(monitor, 0, out var dpi, out _) == 0 ? dpi / 96.0 : 1.0;
+
+        var fullScreen = Tablet.TabletMode.Current?.FullScreenStart == true;
+        var modeChanged = fullScreen != _fullScreen;
+        if (modeChanged && !fullScreen) ResetFloatingLayout(hwnd);
+        _fullScreen = fullScreen;
+        if (fullScreen)
+        {
+            var placed = PlaceFullScreen(hwnd, monitor, info, scale);
+            _content.MaxWidth = _activeTab != PagesTab ? 1100 : double.PositiveInfinity;
+            if (modeChanged) RelayoutPagesNow();
+            return placed;
+        }
+        if (modeChanged) Dispatcher.BeginInvoke(RelayoutPagesNow);
+
         var screen = info.rcMonitor;
         var work = info.rcWork;
 
@@ -451,7 +550,8 @@ internal sealed partial class StartMenuWindow : Window
     private void CaptureBackdrop(Placement placement)
     {
         _backdrop.Children.Clear();
-        const int marginDips = 60;
+        // Full screen has nothing beyond its edges worth sampling.
+        var marginDips = placement.FullScreen ? 0 : 60;
         var marginPixels = (int)Math.Round(marginDips * placement.Scale);
         var capture = StartBackdropCapture.Capture(placement.Rect, marginPixels);
         if (capture is null)
@@ -571,6 +671,7 @@ internal sealed partial class StartMenuWindow : Window
 
         if (_search.Text.Length > 0) _search.Text = string.Empty;
         foreach (var (viewKey, view) in _views) view.Visibility = viewKey == key ? Visibility.Visible : Visibility.Collapsed;
+        _content.MaxWidth = _fullScreen && key != PagesTab ? 1100 : double.PositiveInfinity;
 
         if (key != CategoriesTab) CloseCategory();
         if (leavingWidgets) ClearWidgets();
@@ -650,7 +751,7 @@ internal sealed partial class StartMenuWindow : Window
     private void Launch(LauncherItem item)
     {
         HideMenu();
-        if (!ShellLauncher.Launch(item)) Log.Write($"start: failed to launch '{item.DisplayName}'");
+        if (!Services.AppLauncher.Launch(item)) Log.Write($"start: failed to launch '{item.DisplayName}'");
     }
 
     private void OpenTarget(string target)
@@ -827,6 +928,19 @@ internal sealed partial class StartMenuWindow : Window
         menu.Items.Add(replace);
 
         menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Hearth settings...", () =>
+        {
+            HideMenu();
+            SettingsScreen.SettingsWindow.Open();
+        }));
+        if (Tablet.TabletMode.Current is { } tablet)
+        {
+            menu.Items.Add(Item(tablet.IsActive ? "Leave tablet mode" : "Enter tablet mode", () =>
+            {
+                HideMenu();
+                tablet.Toggle();
+            }));
+        }
         menu.Items.Add(Item("Open Windows Start", () =>
         {
             HideMenu();
@@ -921,6 +1035,9 @@ internal sealed partial class StartMenuWindow : Window
 
     [DllImport("user32.dll")]
     private static extern IntPtr WindowFromPoint(POINT point);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out int processId);

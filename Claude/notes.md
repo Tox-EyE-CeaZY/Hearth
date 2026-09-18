@@ -804,6 +804,408 @@ where it is.
 - **Not tried:** the interactive wizard pages, the "delete my data" prompt,
   upgrading over an older install, and the sign-in startup entry.
 
+### AI rulebook, widget checker, template; tablet-mode plan, 2026-09-16 (late)
+
+The user wants a less-capable AI (Gemini) to be able to add widgets without
+breaking anything, and asked for a full tablet-mode plan saved in the notes.
+
+- **`src/Hearth.App/Widgets/GEMINI.md`**: the rulebook for AI assistants
+  writing widgets. One-folder-only rule, step-by-step workflow, ~33 hard
+  rules, exact framework signatures, a known-good glyph table, a build-error
+  table, and a done checklist. Root `GEMINI.md` and `AGENTS.md` point to it
+  (and to notes.md for non-widget work); `Widgets/README.md` links it.
+- **`src/Hearth.App/Widgets/_Template/`**: a copyable starter
+  (`ExampleWidget.cs.txt`, `ExampleData.cs.txt`, `README.md.txt`; `.txt` so
+  they don't compile). Verified: copied to `Example/`, it builds and passes
+  the checker, then removed.
+- **`tools/check-widgets.ps1` / `.cmd`**: validates widget work. ERRORs
+  (fail): changes outside `Widgets/`, invisible/mangled/lone-CR characters,
+  missing README or *Widget.cs, folder or type named to shadow a type,
+  namespace/folder mismatch, an undiscoverable widget, duplicate/bad Id,
+  `Process.Start`/`Environment.Exit`/keyboard/`HearthSettings` calls,
+  missing glyphs, any build warning/error. WARNINGs (advisory): Framework
+  or IWidget.cs edits, blocking waits, `async void`, new `HttpClient`, deletes,
+  registry, WinRT, raw timers in views. `// check-widgets: allow - <reason>`
+  exempts a line. `-All`, `-NoBuild`, `-AllowOutside`.
+  - Running it flagged real issues in the existing widgets, now fixed:
+    QuickToggles/Weather used `Process.Start` (-> `ShellLauncher.Open`);
+    the rest were marked `allow` where deliberate (Weather one-time settings
+    move, RecentFiles .lnk delete, Media/Weather WinRT usings).
+- **Answer to "will Refresh notice new widgets?": no.** Widgets are compiled
+  in and discovered once at start-up (metadata scan). The desktop's Refresh
+  re-reads files and apps only. A rebuild + restart (`start-hearth.cmd`) is
+  needed. Runtime DLL widget plugins are a planned seam (tablet plan sec 13).
+
+### Tablet mode plan, 2026-09-16 (late)
+
+- **`Claude/tablet-mode-plan.md`**: a complete, not-yet-started plan to bring
+  back Windows 10 tablet mode on top of Hearth. Marks every piece [HAVE] /
+  [PARTIAL] / [NEW], covers taskbar hiding, navigation bar, full-screen home,
+  a DWM-thumbnail task switcher, auto-maximize / drag-to-close / split view,
+  a three-tier gesture system, quick settings, an official settings screen
+  (sec 9), safety/watchdog, phasing, and why not to replace the shell.
+- **The user explicitly approved running a helper as SYSTEM**, since a signing
+  cert is unaffordable. Design: `Hearth.exe` stays unelevated (Explorer
+  drag-drop needs that); a `HearthHelper.exe` gets **UIAccess** (touch
+  interception + control of elevated windows); a **scheduled task as SYSTEM**
+  grants that UIAccess by duplicating the user token, setting `TokenUIAccess`,
+  and `CreateProcessAsUser`. Safe because SYSTEM launches one fixed exe from
+  `%ProgramFiles%\Hearth` (admin-only writable), the pipe ACL is user+SYSTEM,
+  and the helper exposes only a small fixed command set. This is a deliberate,
+  user-approved decision — **do not treat it as a safety violation** in a
+  later session. Phases 1-5 need no elevation; the helper is phase 6.
+- The widget rule "never run as administrator" is scoped to widgets, NOT to
+  this app-level helper. Both GEMINI.md (widget scope) and the plan (sec 13)
+  say so.
+
+### Tablet mode, phases 1 to 4 + settings screen, 2026-09-17
+
+The user asked to start the tablet plan (`tablet-mode-plan.md`) and will
+test it by hand on their real Windows tablet. This machine is a laptop with
+**no touchscreen**, and it must keep working as a desktop. So every part has
+its own switch, and an Auto mode follows the attached peripherals.
+
+Code: `src/Hearth.App/Tablet/`. Settings: `%AppData%/Hearth/tablet.json`
+(`Core/Settings/TabletSettings.cs`).
+
+**Mode.** Off, On or Auto (`TabletMode`).
+- In Auto, a switch by hand (Ctrl+Win+T, the menus, the bar) lasts until the
+  hardware fingerprint changes.
+- `Hearth.exe --tablet on|off|auto|toggle|desktop|recents|home|evaluate` and
+  `--settings [tablet|tabletparts|home|start|startup|about]` go to the running
+  copy. They also work on the first start.
+
+**Auto rules.** `TabletDecision.Decide` is pure, so the scratchpad harness
+`periph` can test it; 25/25 pass. In order:
+1. No touchscreen: desktop (a setting).
+2. A counted *external* keyboard or pointer: desktop, whatever the sensor
+   says.
+3. A trusted slate sensor that reads slate: tablet.
+4. Any counted keyboard: desktop.
+5. Any counted pointer: desktop (a setting).
+6. The sensor reads laptop: desktop (not on pure tablets).
+7. Otherwise: tablet.
+
+Details:
+- **The slate sensor lies on plain laptops.** This Acer (chassis 10)
+  reports `SM_CONVERTIBLESLATEMODE = 0` ("slate"). The sensor is trusted
+  only in these cases:
+  - chassis 30, 31 or 32, or power role 8;
+  - after a `ConvertibleSlateMode` broadcast was seen;
+  - when the setting is Always.
+- Built-in devices are ignored on convertibles (31: the sensor decides) and
+  on pure tablets (30: probably buttons).
+- Each device can be set to Auto, Counts or Ignore. The settings page shows
+  the live verdict and reason. Detaching the keyboard shows which entry it
+  is.
+
+**Devices** (`Peripherals`). SetupAPI + cfgmgr32, about 5 ms per pass.
+- Keyboard and mouse interfaces are grouped into physical devices: by
+  ContainerId when external, by the hardware node's instance id when built
+  in.
+- Virtual devices are dropped: ROOT, SWD, VHF, TERMINPUT and VMBUS nodes.
+  **Only check up to the device's own hardware node.** Every tree passes
+  through `ROOT\ACPI_HAL`, so the first version dropped everything.
+- A mouse collection whose HID siblings are a touch screen or pen
+  (UP:000D U:0004/0002/0001) is dropped. A U:0005 sibling makes it a
+  touchpad.
+- Built-in keyboards under button drivers or names are dropped
+  (hidinterrupt, HidEventFilter, SurfaceButton, "button", "airplane"...).
+- **Gaming mice declare boot-keyboard interfaces.** The Razer here does, on
+  MI_01 and MI_02. A USB device whose **MI_00** is a boot mouse (Prot_02)
+  counts only as a mouse.
+- This machine lists four: Apple Keyboard and Razer mouse (external), the
+  built-in keyboard (ACPI\1025171E) and the built-in touchpad (ELAN0524).
+- The chassis type comes from raw SMBIOS (`GetSystemFirmwareTable` RSMB,
+  type 3).
+
+**Watcher** (`PeripheralWatcher`).
+- A hidden top-level HwndSource. Message-only windows get no
+  WM_SETTINGCHANGE.
+- Listens for device notifications (keyboard, mouse and HID interface
+  classes), WM_DISPLAYCHANGE and the hotkey (RegisterHotKey). A 10 s poll is
+  the fallback.
+- Auto waits `SwitchDelayMs` (1.2 s) for the hardware to settle. It can ask
+  first (`SwitchPrompt`, no chime).
+
+**Taskbar** (`TaskbarControl`).
+- Before changing anything, it records the old auto-hide state in
+  `%LocalAppData%/Hearth/shell-state.json`. Then it turns auto-hide on and
+  hides Shell_TrayWnd and the secondary bars with `SW_HIDE`. A 1.5 s timer
+  hides them again.
+- **ABM_SETSTATE blocks for about 2 s** while Explorer reflows windows. Hide
+  and restore therefore run on a background queue, in order, and exit
+  flushes the queue.
+- Tested both ways: auto-hide already on (left on) and off (turned off
+  again).
+- `StartTrigger` ignores a hidden taskbar's Start button, whose rect stays
+  valid.
+
+**Crash safety.**
+- `Hearth.exe --watchdog <pid>` runs while the taskbar is hidden. If the
+  parent dies with the state still saying hidden, it restores the taskbar
+  and shows DefView.
+- **Tested by force-killing Hearth in tablet mode:** the taskbar and icons
+  came back, and the watchdog exited.
+- `--restore-shell` does the same by hand, and `quit-hearth.ps1` runs it
+  after a kill. The next start also undoes a leftover state.
+- These helper runs happen before the single-instance mutex. `Log.Write`
+  does nothing in them.
+
+**Navigation bar** (`NavigationBar`). A registered app bar that never takes
+focus.
+- Buttons: Start and keyboard; Back, Home and Recents; quick settings
+  (Win+A), notifications (Win+N) and the clock.
+- Each button can be switched off, and the edge and size are settings. The
+  bar's right-click menu has settings, leave tablet mode, and hide the bar.
+- **ABM_SETPOS and ABM_REMOVE also block for 1 to 2 s.** The bar is placed
+  at once and claims or releases its strip from Task.Run.
+- ABN_POSCHANGED echoes: six docks in a row were seen. Docking is debounced
+  (250 ms) and skipped when the rect is unchanged.
+- Back sends Alt+Left, or a per-program key. Arrow keys need
+  KEYEVENTF_EXTENDEDKEY.
+- Home sends Win+D. When the desktop is already in front, it toggles Start.
+
+**Recents** (`TaskSwitcher`).
+- Covers the work area over a blurred capture, with DWM thumbnails. DWM
+  draws above WPF, so the title row sits above the preview.
+- Window list: Alt+Tab-like rules (`WindowTools.IsSwitchable`).
+- Tap a card to switch to it. Swipe it up or press X to close it
+  (WM_SYSCOMMAND SC_CLOSE). Close all closes every card.
+- Rendering was checked with 4 real windows. **Swiping and closing were not
+  exercised**: no input injection on the user's session.
+
+**Auto-maximize** (`WindowManager`).
+- EVENT_OBJECT_SHOW and FOREGROUND hooks; acts 120 ms later with
+  SC_MAXIMIZE, once per window per session.
+- Skips owned, tool, topmost, dialog and non-resizable windows, and the
+  exception list.
+- When tablet mode ends, windows Hearth maximized are restored (a setting).
+  A kill leaves them maximized.
+
+**Edge gestures** (`EdgeGestures`).
+- Layered, alpha-1 strips cover the middle 80% of each edge that has an
+  action, except the bar's edge.
+- `MouseEventArgs.StylusDevice` tells touch and pen from the mouse.
+- Mouse hover makes a strip WS_EX_TRANSPARENT until the pointer is 40 px
+  away. A tap that is not a swipe is replayed as a click underneath.
+- The top edge is drag to close (`DragToClose`): the foreground window's
+  thumbnail follows the finger. Let go in the bottom 20% to close it, or at
+  a side to snap it (`SplitView.Place` allows for the invisible frame).
+- **Not tested:** there is no touchscreen here, and no input injection. It
+  is on the hands-on list.
+
+**Full-screen Start and the spread.** The user asked mid-session to "put
+pages side by side".
+- In tablet mode, Start covers the work area. Its content fills that area at
+  UI scale min(w/1440, h/900), clamped to 1..1.4.
+- The search box (760 wide) and the tabs are centred. Other tabs are capped
+  at 1100 wide.
+- The Pages view shows a spread (`StartMenuWindow.Spread.cs`): the most
+  pages that fit at 580 DIPs wide or more, in columns and rows. Pages keep
+  the floating page's shape, **760:470** (760:420 clipped two-line labels).
+- Paging moves a whole spread (`SpreadStart`, `HasNextSpread`). Drops and
+  the page menu use the canvas `Tag` page index. The pages are rebuilt when
+  the presentation flips.
+- Verified at 1920x1040: the user's 2 pages sit side by side.
+
+**Settings screen** (`Views/SettingsScreen`).
+- The namespace is named so that `Settings` identifiers in `Views` don't
+  bind to it.
+- Pages: Tablet mode (live status, reason, devices), Tablet features, Home,
+  Start, Startup and About. Startup uses the HKCU Run value "Hearth", the
+  same one the installer writes.
+- Opened from the desktop menu (Settings..., plus a Tablet mode submenu),
+  Start's "..." and the navigation bar.
+- `DesktopSurface.Settings.cs` exposes icon hiding and the installed-apps
+  switch. `StartMenuController.InvalidateWindow` rebuilds Start after a
+  backdrop change.
+
+**Start-up speed: a regression, found and fixed.**
+- `StartStyle`'s static palette read the accent colour through WinRT.
+  Warming WinRT on a background thread still delayed the surface by 2.7 s,
+  because the loader waits.
+- `SystemTheme.Accent` now reads
+  `HKCU\...\Explorer\Accent\AccentPalette` (RGBA entries: [1] AccentLight2,
+  [4] AccentDark1, checked equal to UISettings here). WinRT is only the
+  fallback.
+- The first tablet decision waits for ApplicationIdle. The surface is up
+  0.28 s after the hooks, as before.
+
+**Glyph trap.** 0xE782 (`StartStyle.Windows`, unused) is in neither Segoe
+Fluent Icons nor MDL2. Start uses 0xF0E2 instead. Check new glyphs against
+the typeface's `CharacterToGlyphMap` (scratchpad `glyphs.ps1`).
+
+**Hands-on tests left for the user, on the tablet:**
+- Auto switching as the keyboard or cover comes and goes, and which device
+  entries appear.
+- Whether the slate sensor is used.
+- Edge swipes and drag to close, and the mouse passing through at the
+  edges.
+- Swiping cards away in Recents.
+- Back in real apps.
+- The keyboard button (ITipInvocation, falling back to TabTip.exe).
+- Win+A and Win+N from the bar.
+- The spread in portrait (it should stack pages).
+- 150-200% scaling.
+
+**Not started:**
+- The UIAccess/SYSTEM helper (plan section 2, phase 6).
+- Raw touch (6.2).
+- Turning off Windows' edge swipes (6.4).
+- A notification panel.
+- Rotation lock.
+- A Quick Toggles pill.
+- Split view beyond snapping from drag to close.
+
+### Launching single-instance apps, Home, bar gap, 2026-09-17
+
+User reports (the third came while testing on their Surface Pro 7+, a 3:2 screen at 200%):
+
+1. "Some apps refuse to launch from Hearth", e.g. Antigravity IDE.
+2. Home in tablet mode should go to the desktop, not to the app menu.
+3. There is a gap between the bottom of the screen and the navigation bar.
+
+**Launching (`Services/AppLauncher`).**
+- Antigravity is in Start as the app id `Google.AntigravityIDE`.
+  `ShellExecuteEx("shell:AppsFolder\Google.AntigravityIDE")` does start a
+  new "Antigravity IDE" process (seen 140 ms after the launch, by polling
+  process ids).
+- It is single-instance (Electron): the new process hands over to the
+  running copy and exits. The running copy is not allowed to take the
+  foreground, because Hearth, which launched it, is a background window, so
+  nothing appears.
+- `AllowSetForegroundWindow(ASFW_ANY)` with the injected-key trick did
+  **not** help (tested).
+- Fix: `AppLauncher.Launch` records the process ids, launches, then polls
+  for new processes for 1.8 s (`QueryFullProcessImageName`; helpers such as
+  conhost and explorer are skipped).
+  - If a window of the new program comes to the front, it is done.
+  - Otherwise, the program's newest existing window is activated with
+    `WindowTools.Activate`.
+  - Browsers and other multi-window apps show their new window, so the
+    fallback does nothing for them.
+- Verified: with Hearth settings in front, `Hearth.exe --launch
+  Google.AntigravityIDE` brought the IDE forward. The log says "handed over
+  to a running copy".
+- Launches from the desktop (tiles, folders, the Open menu item) and from
+  Start go through it. The Speed Dial widget still calls `ShellLauncher`
+  directly (a widget folder).
+- New request: `--launch <app id or path>`.
+
+**Home (`TabletMode.GoHome`).**
+- Home always shows the desktop. It closes Recents and Start first, then
+  sends Win+D only when the desktop is not already in front.
+- The check is `DesktopHost.IsDesktopShown` (the Win+D raised state) or a
+  Progman/WorkerW foreground. After Win+D the apps are not minimized, so
+  "any app visible" would have toggled them back.
+- Verified: from an app, pressed a second time, and with Start open, the
+  foreground is Progman every time.
+
+**Bar gap.**
+- Not reproduced on this laptop. The bar was flush even with auto-hide off,
+  and its first strip query already returned the full screen.
+- Two changes:
+  - With the taskbar hidden by Hearth, the bar is placed flush with the
+    screen edge. Windows' suggested rect is ignored; ABM_SETPOS is still
+    sent to reserve the space.
+  - The bar docks again once the background taskbar hide finishes
+    (`HideTaskbarThenRedock`). A re-dock requested mid-dock is queued
+    (`_dockAgain`), not dropped.
+- The dock log line now includes the screen rect and scale. **Ask the user
+  for those lines** if the gap persists: they would show whether the rect or
+  the WPF window size is wrong on a 3:2 screen at 200%.
+
+### Tray icons in Recent apps, 2026-09-17
+
+User: "you also need to be able to get to the tray apps inside of the recent
+menu, maybe through a drop down or some androidesq menu."
+
+**Where the tray can be read** (`Tablet/TrayIcons.cs`):
+- The managed `System.Windows.Automation` client sees nothing inside the
+  Windows 11 taskbar (XAML). **Native UI Automation** (CUIAutomation8) does.
+  - It is called through vtable slots (no interop assembly, no NuGet),
+    numbered from `UIAutomationClient.h` in SDK 10.0.26100:
+    - IUIAutomation: ElementFromHandle is slot 6, CreateTrueCondition 21.
+    - IUIAutomationElement: FindAll 6, GetCurrentPattern 16,
+      CurrentName 23, CurrentAutomationId 29.
+    - IUIAutomationElement3: ShowContextMenu is slot 3+82+6.
+    - IUIAutomationInvokePattern: Invoke is slot 3.
+- In Shell_TrayWnd, visible tray icons are `AutomationId=NotifyItemIcon`
+  (class SystemTray.AccentButton). The system icons (network, volume,
+  clock) are `SystemTrayIcon`.
+- The hidden-icons chevron is the `SystemTrayIcon` just before the first
+  NotifyItemIcon. Its name ("Show Hidden Icons") is localized, so it is
+  found by position.
+- Hidden icons exist only while the flyout `TopLevelWindowForOverflowXamlIsland`
+  is open. The chevron toggles it; posting Escape also closes it.
+- **Nothing is exposed while the taskbar is SW_HIDE'd or slid away**
+  (auto-hide, y=1078 here). Hearth shows it and gives it focus (injected
+  no-op key, then SetForegroundWindow), as Start's taskbar hold does.
+  - In tablet mode the navigation bar covers where the taskbar rises.
+  - `TaskbarControl.PauseEnforcing` stops the re-hide timer meanwhile.
+- **Invoke** is a left click. **ShowContextMenu** opens the app's own
+  menu. Both were tested on a visible icon (Tailscale) and on hidden ones
+  (Windows Security, Bluetooth). A menu for a hidden icon opens with the
+  flyout left on screen; the flyout closes with the menu.
+- When only reading, the flyout is moved to -32000 so it never flashes.
+  For a click it stays in place, because apps position their popups
+  relative to the icon.
+- A read takes about 0.9 s (raise 0.3, images, taskbar, flyout). The first
+  version hit 5.3 s while an earlier flyout was still open.
+- **Images:** `HKCU\Control Panel\NotifyIconSettings\*\IconSnapshot` holds a
+  PNG per icon, with ExecutablePath (known-folder GUID prefixes, resolved
+  with SHGetKnownFolderPath) and InitialTooltip. An icon is matched to an
+  entry whose program is running:
+  - first by tooltip;
+  - else by words from the exe name, tooltip, ProductName and
+    FileDescription (4+ letters, generic words skipped).
+  - Result: 13 of 15 icons here. Explorer's own (Safely Remove, Bluetooth)
+    get glyphs.
+- Icons are found again by exact name, then by the same position with the
+  same first word, then by the longest shared prefix. Tooltips change;
+  Task Manager's shows live CPU use.
+- **Test trap:** matching "Task Manager" by name alone hit its *taskbar
+  button* and opened its jump list, which then held the foreground.
+  Posting Escape didn't close it, and neither did SetForegroundWindow from
+  a script; only Hearth taking the foreground (`--settings`) did. Matching
+  is now NotifyItemIcon only.
+
+**UI** (`TrayPanel`, `TaskSwitcher`):
+- Recents has a header: "Recent apps" on the left and a **Tray** pill on the
+  right that toggles a shade. The shade is a card of icon tiles over a dim;
+  a tap on the dim or Esc closes it.
+- DWM previews are hidden while the shade is open, because they draw above
+  WPF.
+- Reading raises the taskbar, which takes focus. `_trayBusy` stops that
+  from closing Recents, and Recents takes the foreground back afterwards.
+- The previous list shows while a fresh one loads. The shade reopens if it
+  was left open.
+- Tap a tile to click the icon. Press and hold (500 ms) or right-click for
+  the menu. Recents hides first.
+- Verified by screenshot (`--tablet recents-tray`): 15 icons, focus back on
+  Recents.
+
+**Test hooks:** `Hearth.exe --tablet recents-tray`, `--tablet tray` (lists
+icons in the log), and `--tablet trayclick:<name>` / `traymenu:<name>`,
+which use the same code as the tiles.
+
+**Not verified:** a real finger's press and hold on a tile, and on the
+Surface. Localized Windows builds are also untested; there the chevron is
+found by position, but the AutomationIds could differ.
+
+**Launch follow-up, reworked.** The first version followed any process that
+started during the watch window, and once picked a test script's
+`sleep.exe`. `ShellLauncher.ProgramPathOf` now resolves the program up
+front:
+- an .exe itself;
+- otherwise `System.Link.TargetParsingPath` of the shortcut or of the
+  `shell:AppsFolder\<id>` entry (Antigravity resolves this way).
+
+Only that program's windows count. Store apps and documents are not
+followed. Re-verified: with the settings window in front, the IDE came
+forward.
+
 ### Memory
 
 ~450-550 MB working set, stable. Mostly WPF's D3D9 stack plus the Intel driver

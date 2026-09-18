@@ -1,0 +1,121 @@
+// TEMPLATE. How to use it:
+//   1. Copy this _Template folder to Widgets/<YourName>/ (PascalCase, not a type name like Timer or System).
+//   2. Rename ExampleWidget.cs.txt to <YourName>Widget.cs, ExampleData.cs.txt to <YourName>Data.cs,
+//      and README.md.txt to README.md.
+//   3. Replace every "Example" / "example" with your widget's name, and give it a new Id.
+//   4. Delete these comment lines, fill in the README, then run tools/check-widgets.cmd.
+
+using System.Windows;
+using System.Windows.Controls;
+
+namespace Hearth.App.Widgets.Example;
+
+/// <summary>
+/// One or two sentences: what the widget shows and what you can do with it.
+/// </summary>
+public sealed class ExampleWidget : IWidget
+{
+    // Stored in people's layouts as "widget:example". Never change it once shipped.
+    public string Id => "example";
+
+    // Shown in the add-widget menus.
+    public string Title => "Example";
+
+    // Grid cells. A desktop cell is about 105 x 125 px.
+    public (int Columns, int Rows) DefaultSpan => (3, 2);
+    public (int Columns, int Rows) MinimumSpan => (2, 2);
+
+    // Height on the Start menu's Widgets board (half-width card, or full width).
+    public double BoardHeight(bool wide) => wide ? 150 : 190;
+
+    // Position in the menus. Built-in widgets use 10-160; pick something above 160.
+    public int Order => 500;
+
+    // Only if the widget must do work even when it isn't on screen (alarms, timers).
+    // Most widgets leave these out.
+    // public void StartServices() => ExampleData.Start();
+    // public void StopServices() => ExampleData.Stop();
+
+    public FrameworkElement CreateView(WidgetContext context) => new ExampleView(context);
+
+    private sealed class ExampleView : WidgetView
+    {
+        private readonly WidgetHeader _header;
+        private readonly StackPanel _rows = new();
+        private readonly FrameworkElement _empty;
+
+        public ExampleView(WidgetContext context) : base(context)
+        {
+            // Header: accent glyph, title, optional detail text, small action buttons.
+            _header = new WidgetHeader(context, "\uE71D", "Example");
+            _header.AddAction("\uE710", "Add an item", () => ExampleData.Add($"Item {ExampleData.Items.Count + 1}"));
+
+            // What to show when there's nothing to list.
+            _empty = WidgetLayout.Empty(context, "\uE71D", "Nothing here yet");
+
+            // Header on top, the list fills the rest.
+            var layout = new DockPanel();
+            DockPanel.SetDock(_header, Dock.Top);
+            layout.Children.Add(_header);
+            layout.Children.Add(new Grid { Children = { WidgetLayout.Scroller(_rows), _empty } });
+            SetBody(layout);
+
+            // Listen to the data only while the view is on screen.
+            While(() => ExampleData.Changed += OnChanged, () => ExampleData.Changed -= OnChanged);
+
+            // Something that updates on a timer (remove if not needed).
+            Every(TimeSpan.FromMinutes(1), Rebuild);
+
+            // Hide optional parts on small placements.
+            layout.SizeChanged += (_, _) =>
+                _header.Visibility = layout.ActualHeight >= 90 * S ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // First fill, every time the view appears.
+        protected override void OnShown() => Rebuild();
+
+        // Data events may come from any thread; Post brings them back to the view.
+        private void OnChanged() => Post(Rebuild);
+
+        private void Rebuild()
+        {
+            var items = ExampleData.Items;
+            _header.Detail = items.Count == 0 ? string.Empty : $"{items.Count}";
+            _empty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            _rows.Children.Clear();
+            foreach (var item in items) _rows.Children.Add(Row(item));
+        }
+
+        private FrameworkElement Row(ExampleItem item)
+        {
+            // Sizes are in points; WidgetChrome scales them. Anything else: multiply by S.
+            var text = WidgetChrome.Text(Context, item.Text, 13);
+            var when = WidgetChrome.Text(Context, WidgetFormat.Ago(item.CreatedUtc), 10.5, WidgetChrome.Secondary);
+
+            var remove = new GlyphButton(Context, "\uE711", 22, () => ExampleData.Remove(item.Id)) { ToolTip = "Remove" };
+
+            var dock = new DockPanel();
+            DockPanel.SetDock(remove, Dock.Right);
+            dock.Children.Add(remove);
+            dock.Children.Add(new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { text, when } });
+
+            // Pressable: click, right-click menu. It stops the click from dragging the widget.
+            var row = new Pressable(() => WidgetFiles.SetClipboardText(item.Text))
+            {
+                CornerRadius = new CornerRadius(8 * S),
+                Padding = new Thickness(6 * S, 4 * S, 6 * S, 4 * S),
+                Margin = new Thickness(-6 * S, 0, -6 * S, 0),
+                Child = dock,
+                ToolTip = "Click to copy",
+            };
+            row.ContextRequested = () => WidgetMenu.Show(row, menu =>
+            {
+                menu.Items.Add(WidgetMenu.Item("Copy", () => WidgetFiles.SetClipboardText(item.Text)));
+                menu.Items.Add(WidgetMenu.Item("Remove", () => ExampleData.Remove(item.Id)));
+            });
+            WidgetLayout.RevealOnHover(row, remove);
+            return row;
+        }
+    }
+}

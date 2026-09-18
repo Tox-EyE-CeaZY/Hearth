@@ -9,6 +9,7 @@ using System.Windows.Threading;
 using Hearth.App.Hosting;
 using Hearth.App.Widgets.Audio;
 using Hearth.Core.Diagnostics;
+using Hearth.Core.Shell;
 using Hearth.Core.Interop;
 
 namespace Hearth.App.Widgets.QuickToggles;
@@ -188,7 +189,7 @@ public sealed class QuickTogglesWidget : IWidget
         {
             try
             {
-                Process.Start(new ProcessStartInfo("ms-screenclip:") { UseShellExecute = true });
+                ShellLauncher.Open("ms-screenclip:");
             }
             catch (Exception ex)
             {
@@ -200,7 +201,7 @@ public sealed class QuickTogglesWidget : IWidget
         {
             try
             {
-                Process.Start(new ProcessStartInfo("ms-settings:nightlight") { UseShellExecute = true });
+                ShellLauncher.Open("ms-settings:nightlight");
             }
             catch (Exception ex)
             {

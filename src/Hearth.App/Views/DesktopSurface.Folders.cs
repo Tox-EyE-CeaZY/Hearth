@@ -223,7 +223,7 @@ public partial class DesktopSurface
     private void LaunchFromFolder(IconTile tile)
     {
         if (tile.Item is null) return;
-        Hearth.Core.Shell.ShellLauncher.Launch(tile.Item);
+        Services.AppLauncher.Launch(tile.Item);
         CloseFolder();
     }
 
