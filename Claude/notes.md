@@ -2382,6 +2382,28 @@ maximized window's close button is comfortably clickable again, and whether a
 home-screen icon or widget at the bar's edge visibly stays clear when the bar
 reveals.
 
+### Folder double-click, drag-to-reorder, opening animation, and 0.3.0, 2026-10-22
+
+- **Double click with "Open with a single click" off** never opened anything
+  inside a folder, and a folder tile opened and closed in the same press:
+  `OnMouseDoubleClick` fires during the second press, which then reached
+  `OnFolderPress` as a click outside the new panel. Double clicks are now
+  counted from `ClickCount` in the press/release path (`_pressIsDoubleClick`)
+  and `OnMouseDoubleClick` is gone. Confirmed by the user.
+- **Dragging inside an open folder** reorders it, Android-style: the panel
+  stays open while the pointer is over it (`UpdateFolderDrag`), tiles slide
+  to their new slots, and letting go saves `GridGroup.ItemIds`
+  (`CommitFolderOrder`). Leaving the panel closes it and the drag continues
+  through `CompleteDrop` as before. Confirmed by the user.
+- **Opening animation** grows the panel from the folder tile (scale plus
+  translate about the top-left corner), 200 ms. New setting
+  `CenterOpenFolders` (off by default; Settings -> Layout and behaviour):
+  off, the panel opens over its tile, clamped to the display; on, centred.
+  Closing is still instant.
+- **Version** bumped to 0.3.0.
+- The user builds and restarts Hearth themselves; do not run the build or
+  `start-hearth.cmd` unless asked.
+
 ## Build status
 
 **Builds clean.** .NET SDK 8.0.425 installed 2026-09-15 via

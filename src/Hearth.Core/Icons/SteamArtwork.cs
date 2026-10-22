@@ -204,6 +204,12 @@ public static class SteamArtwork
         if (logo is null && background is null) return null;
 
         var visual = new DrawingVisual();
+
+        // The logo is ~1000 px wide and the hero ~1900, drawn into 256. WPF's
+        // default filter (bilinear) skips source pixels on a reduction that
+        // large, which is what makes edges jagged. HighQuality averages them.
+        RenderOptions.SetBitmapScalingMode(visual, BitmapScalingMode.HighQuality);
+
         using (var context = visual.RenderOpen())
         {
             var full = new Rect(0, 0, Size, Size);

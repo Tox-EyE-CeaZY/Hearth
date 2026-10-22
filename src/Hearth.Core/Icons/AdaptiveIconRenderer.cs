@@ -21,8 +21,21 @@ public enum IconFit
     Fit,
 }
 
+/// <summary>Where an icon's artwork comes from.</summary>
+public enum IconSourceMode
+{
+    /// <summary>Hearth's best guess: Steam library artwork for Steam games, the shortcut's own icon otherwise.</summary>
+    Auto,
+
+    /// <summary>Always the icon the shell reports for the item, ignoring Steam artwork and overrides.</summary>
+    Original,
+}
+
 public sealed record IconRenderOptions
 {
+    /// <summary>Per-icon artwork source; Auto unless the user chose otherwise.</summary>
+    public IconSourceMode Source { get; init; } = IconSourceMode.Auto;
+
     /// <summary>Per-icon placement; Auto unless the user chose otherwise.</summary>
     public IconFit Fit { get; init; } = IconFit.Auto;
 

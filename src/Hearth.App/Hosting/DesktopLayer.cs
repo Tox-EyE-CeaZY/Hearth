@@ -22,6 +22,13 @@ public sealed class DesktopLayer : IDisposable
     private bool _wallpaperHidden;
     private bool _disposed;
 
+    /// <summary>
+    /// True while another wallpaper engine (Wallpaper Engine) owns the shell's
+    /// wallpaper WorkerW. Hiding that window would hide the animated wallpaper
+    /// with it, so while this is set Hearth leaves it alone.
+    /// </summary>
+    public bool KeepShellWallpaper { get; set; }
+
     public DesktopLayer()
     {
         // Last line of defence. If Hearth goes down holding the icons hidden,
@@ -92,7 +99,7 @@ public sealed class DesktopLayer : IDisposable
     /// </summary>
     public void HideShellWallpaper(IntPtr host)
     {
-        if (_wallpaperHidden) return;
+        if (KeepShellWallpaper || _wallpaperHidden) return;
 
         if (_wallpaperWorkerW == IntPtr.Zero)
             _wallpaperWorkerW = Win32.FindWindowEx(host, IntPtr.Zero, "WorkerW", null);
@@ -119,6 +126,8 @@ public sealed class DesktopLayer : IDisposable
     /// </summary>
     public void EnforceShellWallpaperHidden(IntPtr host)
     {
+        if (KeepShellWallpaper) return;
+
         var worker = Win32.FindWindowEx(host, IntPtr.Zero, "WorkerW", null);
         if (worker == IntPtr.Zero || !Win32.IsWindowVisible(worker)) return;
 

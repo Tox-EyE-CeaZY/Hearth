@@ -269,6 +269,16 @@ public sealed class HomeLayout
     public Hearth.Core.Icons.IconFit FitFor(string itemId) =>
         IconFits.TryGetValue(itemId, out var fit) ? fit : Hearth.Core.Icons.IconFit.Auto;
 
+    /// <summary>
+    /// Where the user chose each icon's artwork to come from (for instance the
+    /// shortcut's own icon rather than Steam's library art). Missing means
+    /// automatic.
+    /// </summary>
+    public Dictionary<string, Hearth.Core.Icons.IconSourceMode> IconSources { get; set; } = [];
+
+    public Hearth.Core.Icons.IconSourceMode SourceFor(string itemId) =>
+        IconSources.TryGetValue(itemId, out var mode) ? mode : Hearth.Core.Icons.IconSourceMode.Auto;
+
     private DisplayArrangement Current
     {
         get

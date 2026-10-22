@@ -70,6 +70,7 @@ public sealed class DesktopHost : IDisposable
         };
 
         _source = new HwndSource(parameters);
+        EnableTransparency(_source);
         MarkNotFullScreen(_source.Handle);
         ShowWindow(_source.Handle, SW_SHOWNA);
         _taskbarCreatedMessage = RegisterWindowMessage("TaskbarCreated");
@@ -87,6 +88,7 @@ public sealed class DesktopHost : IDisposable
             IntPtr.Zero, _foregroundCallback, 0, 0, WINEVENT_OUTOFCONTEXT);
 
         Current = this;
+        StartWallpaperEngineWatch();
         Log.Write($"host: top-level hwnd=0x{_source.Handle:X} at ({x},{y}) size {width}x{height}");
         return true;
     }
@@ -108,6 +110,68 @@ public sealed class DesktopHost : IDisposable
         if (!SetProp(hwnd, "NonRudeHWND", new IntPtr(1)))
             Log.Write("host: could not set NonRudeHWND; an auto-hidden taskbar may not appear on hover");
     }
+
+    // ---- Wallpaper Engine ------------------------------------------------
+
+    /// <summary>True while Wallpaper Engine is running and Hearth should not paint a wallpaper.</summary>
+    public static bool WallpaperEngineActive { get; private set; }
+
+    /// <summary>Raised (on the UI thread) when Wallpaper Engine starts or stops. The surface should show or hide its own wallpaper.</summary>
+    public static event Action<bool>? WallpaperEngineModeChanged;
+
+    private System.Windows.Threading.DispatcherTimer? _weTimer;
+
+    private void StartWallpaperEngineWatch()
+    {
+        _weTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _weTimer.Tick += (_, _) => RefreshWallpaperEngineMode();
+        _weTimer.Start();
+        RefreshWallpaperEngineMode();
+    }
+
+    /// <summary>
+    /// Re-evaluates the mode: on only when the setting allows it AND Wallpaper
+    /// Engine is actually running. Call this after the setting changes.
+    /// </summary>
+    public void RefreshWallpaperEngineMode() =>
+        ApplyWallpaperEngineMode(App.Settings.WallpaperEngineSupport && WallpaperEngine.IsRunning());
+
+    private void ApplyWallpaperEngineMode(bool on)
+    {
+        if (on == WallpaperEngineActive) return;
+        WallpaperEngineActive = on;
+        _layer.KeepShellWallpaper = on;
+
+        // Hand the WorkerW back to Wallpaper Engine; when it stops, the
+        // existing enforcement hides the shell wallpaper again.
+        if (on) _layer.RestoreShellWallpaper();
+
+        Log.Write($"Wallpaper Engine mode: {(on ? "on" : "off")}");
+        WallpaperEngineModeChanged?.Invoke(on);
+    }
+
+    /// <summary>
+    /// Per-pixel transparency without WS_EX_LAYERED, so hardware rendering
+    /// stays on: a transparent render target plus DWM glass over the whole
+    /// client area. Transparent pixels still receive clicks (hit-testing is by
+    /// window, not alpha).
+    /// </summary>
+    private static void EnableTransparency(HwndSource source)
+    {
+        source.CompositionTarget.BackgroundColor = System.Windows.Media.Colors.Transparent;
+        var margins = new MARGINS { cxLeftWidth = -1, cxRightWidth = -1, cyTopHeight = -1, cyBottomHeight = -1 };
+        var hr = DwmExtendFrameIntoClientArea(source.Handle, ref margins);
+        if (hr != 0) Log.Write($"host: DwmExtendFrameIntoClientArea failed 0x{hr:X8}");
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MARGINS
+    {
+        public int cxLeftWidth, cxRightWidth, cyTopHeight, cyBottomHeight;
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
 
     private static (int X, int Y, int Width, int Height) VirtualScreen() => (
         Win32.GetSystemMetrics(Win32.SM_XVIRTUALSCREEN),
@@ -373,6 +437,9 @@ public sealed class DesktopHost : IDisposable
         }
         if (ReferenceEquals(Current, this)) Current = null;
         _displayTimer?.Stop();
+        _weTimer?.Stop();
+        _weTimer = null;
+        WallpaperEngineActive = false;
 
         _surface?.DetachFromDesktop();
         _layer.Dispose();

@@ -21,7 +21,7 @@ namespace Hearth.Core.Icons;
 public sealed class IconService : IDisposable
 {
     /// <summary>Bump to invalidate every cached tile after a pipeline change.</summary>
-    private const int CacheVersion = 4; // 2: bottom-up DIB fix, 3: padded small-icon trim, 4: plate zoom
+    private const int CacheVersion = 5; // 2: bottom-up DIB fix, 3: padded small-icon trim, 4: plate zoom, 5: icon source
 
     private readonly string _diskCacheDirectory;
     private readonly ConcurrentDictionary<string, BitmapSource> _memoryCache = new();
@@ -141,8 +141,14 @@ public sealed class IconService : IDisposable
 
             // Steam's own library artwork, composed here because this is the
             // one thread in the process that may touch WPF imaging.
-            var steam = item.SteamAppId is { Length: > 0 } appId ? SteamArtwork.IconFor(appId) : null;
-            var picked = item.IconOverridePath is { Length: > 0 } chosen && File.Exists(chosen) ? chosen : steam;
+            // "Original" skips both Steam artwork and overrides and goes
+            // straight to the icon the shell reports for the item.
+            string? picked = null;
+            if (options.Source != IconSourceMode.Original)
+            {
+                var steam = item.SteamAppId is { Length: > 0 } appId ? SteamArtwork.IconFor(appId) : null;
+                picked = item.IconOverridePath is { Length: > 0 } chosen && File.Exists(chosen) ? chosen : steam;
+            }
 
             var source = picked is not null
                 ? LoadRawFromFile(picked)
@@ -245,6 +251,7 @@ public sealed class IconService : IDisposable
             options.Scale.ToString("F2"),
             options.BakeShadow,
             options.Fit,
+            options.Source,
             options.ForceBackground,
             options.DarkTheme);
 
@@ -262,6 +269,10 @@ public sealed class IconService : IDisposable
         // Requests already under way would otherwise be handed back from
         // _inFlight and re-save the very entries being deleted.
         _inFlight.Clear();
+
+        // Steam's composed icons are cached separately; without this a change
+        // to how they are made would never show up.
+        SteamArtwork.Clear();
         try
         {
             foreach (var file in Directory.EnumerateFiles(_diskCacheDirectory, "*.png"))

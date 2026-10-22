@@ -70,6 +70,7 @@ public partial class DesktopSurface
     private FrameworkElement? _pressedElement;
     private string? _pressedId;
     private Point _pressOrigin;
+    private bool _pressIsDoubleClick;
     private DragSession? _drag;
     private IconTile? _dropTarget;
 
@@ -92,6 +93,8 @@ public partial class DesktopSurface
         // A drag whose mouse-up never arrived must not leave its ghost behind:
         // that orphan is what looked like a duplicated icon.
         if (_drag is not null) CancelDrag();
+
+        _pressIsDoubleClick = e.ClickCount % 2 == 0;
 
         if (_openFolder is not null)
         {
@@ -139,7 +142,8 @@ public partial class DesktopSurface
         if (_drag is not null)
         {
             MoveGhost(position);
-            UpdateDropTarget(position);
+            if (_drag.FromFolder is not null && _openFolder is not null) UpdateFolderDrag(_drag, position);
+            else UpdateDropTarget(position);
             return;
         }
 
@@ -188,25 +192,25 @@ public partial class DesktopSurface
         if (drag is not null)
         {
             ClearDragVisuals(drag);
-            CompleteDrop(drag, position);
+            // Still open means it was let go over the panel: a reorder.
+            if (drag.FromFolder is { } from && _openFolder is not null) CommitFolderOrder(from);
+            else CompleteDrop(drag, position);
             return;
         }
+
+        // Double clicks are counted here rather than in OnMouseDoubleClick. That
+        // event fires during the second press, so a folder it opened was closed
+        // again by the same press as a click outside the panel, and it never
+        // reached items inside an open folder at all.
+        var launch = App.Settings.LaunchOnSingleClick || _pressIsDoubleClick;
 
         if (folderPress is not null)
         {
-            if (element is IconTile inFolder && App.Settings.LaunchOnSingleClick) LaunchFromFolder(inFolder);
+            if (element is IconTile inFolder && launch) LaunchFromFolder(inFolder);
             return;
         }
 
-        if (element is IconTile tile && App.Settings.LaunchOnSingleClick) Activate(tile);
-    }
-
-    protected override void OnMouseDoubleClick(MouseButtonEventArgs e)
-    {
-        base.OnMouseDoubleClick(e);
-        if (App.Settings.LaunchOnSingleClick || _openFolder is not null) return;
-
-        if (HitTestElement(e.GetPosition(ItemCanvas)).Element is IconTile tile) Activate(tile);
+        if (element is IconTile tile && launch) Activate(tile);
     }
 
     protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
@@ -354,6 +358,7 @@ public partial class DesktopSurface
     {
         if (_drag is null) return;
         ClearDragVisuals(_drag);
+        if (_drag.FromFolder is not null) ResetFolderOrder();
         _drag = null;
     }
 
@@ -699,6 +704,23 @@ public partial class DesktopSurface
         }
         menu.Items.Add(style);
 
+        // Only items that have an alternative to the shortcut's own icon
+        // (Steam games, for now) get a choice of where the artwork comes from.
+        if (item.SteamAppId is { Length: > 0 } || item.IconOverridePath is { Length: > 0 })
+        {
+            var source = new MenuItem { Header = "Icon source" };
+            var currentSource = _layout.SourceFor(item.Id);
+            foreach (var (mode, label) in new[]
+            {
+                (IconSourceMode.Auto, "Automatic (Steam artwork)"),
+                (IconSourceMode.Original, "Original icon"),
+            })
+            {
+                source.Items.Add(CheckableMenuItem(label, currentSource == mode, () => SetIconSource(item.Id, mode)));
+            }
+            menu.Items.Add(source);
+        }
+
         if (IsRemovablePin(item))
             menu.Items.Add(MenuItemFor("Remove from home", () => RemoveFromHome(item)));
         else
@@ -723,6 +745,21 @@ public partial class DesktopSurface
     }
 
     // ---- Hiding, deleting, and the Windows menu -------------------------
+
+    private void SetIconSource(string itemId, IconSourceMode mode)
+    {
+        if (mode == IconSourceMode.Auto) _layout.IconSources.Remove(itemId);
+        else _layout.IconSources[itemId] = mode;
+
+        TrySaveLayout();
+
+        // The source is part of the icon cache key, so relayout renders the new
+        // artwork; rebuild the folder panel too if one is open.
+        var openFolder = _openFolder;
+        var folderSurface = _folderSurface;
+        RelayoutTiles();
+        if (openFolder is not null && folderSurface is not null) OpenFolder(openFolder, folderSurface);
+    }
 
     private void SetIconFit(string itemId, IconFit fit)
     {
